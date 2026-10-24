@@ -57,7 +57,21 @@ Map<String, dynamic> _manifest() => {
   'name': 'Parcel Dev',
   'version': '0.0.1',
   'description': 'Addon de prueba de Parcel: un video local.',
-  'resources': ['catalog', 'meta', 'stream'],
+  'resources': [
+    'catalog',
+    {
+      'name': 'meta',
+      'types': ['movie', 'series'],
+      'idPrefixes': ['parcel'],
+    },
+    // Streams también para cualquier id de IMDb, así se prueban los subtítulos
+    // de OpenSubtitles con contenido real.
+    {
+      'name': 'stream',
+      'types': ['movie', 'series'],
+      'idPrefixes': ['parcel', 'tt'],
+    },
+  ],
   'types': ['movie', 'series'],
   'idPrefixes': ['parcel'],
   'catalogs': [
@@ -151,10 +165,7 @@ Future<void> _handle(HttpRequest request, String base, File media) async {
     }
     if (resource == 'meta' && id == _movieId) return json({'meta': _movie()});
     if (resource == 'meta' && id == _seriesId) return json({'meta': _series()});
-    if (resource == 'stream' &&
-        (id == _movieId || id.startsWith('$_seriesId:'))) {
-      return json({'streams': _streams(base)});
-    }
+    if (resource == 'stream') return json({'streams': _streams(base)});
   }
   response.statusCode = HttpStatus.notFound;
   await response.close();

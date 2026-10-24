@@ -86,6 +86,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   static const _seekStep = Duration(seconds: 10);
   static const _volumeStep = 0.05;
   static const _doubleTap = Duration(milliseconds: 300);
+  static const _subtitleDelay = Duration(seconds: 2);
 
   final FocusNode _focus = FocusNode(debugLabel: 'player');
   Timer? _hideTimer;
@@ -200,6 +201,23 @@ class _PlayerScreenState extends State<PlayerScreen> {
     await _engine.setSubtitleTrack(target);
   }
 
+  /// Espera a que el video avance un par de segundos: cargar un subtítulo por
+  /// red frena un instante la reproducción y es mejor que no sea al arrancar.
+  Future<void> _waitForPlayback() async {
+    final from = _engine.state.position;
+    try {
+      await _engine.stream
+          .firstWhere(
+            (s) => s.error != null || s.position - from >= _subtitleDelay,
+          )
+          .timeout(const Duration(seconds: 8));
+    } on TimeoutException {
+      // El video no avanza (pausado): se cargan igual.
+    } on StateError {
+      // El motor se cerró.
+    }
+  }
+
   /// Suma los subtítulos de los addons cuando llegan. Cada pista nueva el
   /// motor la elige sola, así que después de cada una se vuelve a la elección
   /// que corresponde.
@@ -208,6 +226,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if (late == null) return;
     final subtitles = await late;
     if (!mounted || subtitles.isEmpty) return;
+    await _waitForPlayback();
+    if (!mounted) return;
     final before = _userPickedSubtitle
         ? _engine.state.selectedSubtitle
         : _embeddedSelection();

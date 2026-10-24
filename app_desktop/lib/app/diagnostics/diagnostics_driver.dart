@@ -268,6 +268,8 @@ class _DiagnosticsDriverState extends ConsumerState<DiagnosticsDriver> {
         extra: PlayerArgs(
           url: stream.url!,
           headers: stream.behaviorHints.proxyRequestHeaders,
+          // Sin nadie para contestar «¿continuar?»: retoma directo.
+          resume: ResumeMode.resume,
           item: PlayItem(
             meta: meta,
             video: video,

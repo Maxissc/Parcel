@@ -57,8 +57,8 @@ const Map<String, String> _names = {
 List<Subtitle> selectAddonSubtitles(
   List<Subtitle> all, {
   String? preferredLanguage,
-  int perLanguage = 3,
-  int maxTotal = 24,
+  int perLanguage = 2,
+  int maxTotal = 8,
 }) {
   final seen = <String>{};
   final byLanguage = <String, List<Subtitle>>{};

@@ -300,6 +300,11 @@ void main() {
           subtitleLanguage: 'spa',
         );
         await pumpIo(tester);
+        // Al arrancar todavía no se cargan: primero el video tiene que avanzar.
+        expect(fake.state.subtitleTracks.where((t) => t.isExternal), isEmpty);
+        fake.tick(const Duration(seconds: 3));
+        await tester.pump();
+        await pumpIo(tester);
 
         expect(
           world.requests,
@@ -330,6 +335,9 @@ void main() {
         ),
         subtitleLanguage: 'por',
       );
+      await pumpIo(tester);
+      fake.tick(const Duration(seconds: 3));
+      await tester.pump();
       await pumpIo(tester);
 
       expect(
@@ -500,7 +508,7 @@ void main() {
           sub('7', 'spa', 'http://s/3.srt'),
         ], preferredLanguage: 'spa');
 
-        expect(result.map((s) => s.id), ['3', '1', '2', '4']);
+        expect(result.map((s) => s.id), ['3', '1', '2']);
         expect(result.first.label, 'Español');
         expect(result[1].label, 'Inglés 1');
       },
