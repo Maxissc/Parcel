@@ -132,6 +132,7 @@ class _PlayerRouteState extends ConsumerState<PlayerRoute> {
   SubtitleCatalog? _catalog;
   TrackPreferences? _preferences;
   List<Duration> _syncTaps = const [];
+  Timer? _statsLog;
 
   /// Desde dónde arranca; `null` mientras se espera la respuesta del usuario.
   Duration? _start;
@@ -153,6 +154,25 @@ class _PlayerRouteState extends ConsumerState<PlayerRoute> {
       final d = PlaybackDiagnostics(_engine, config: diag)..start();
       if (diag.cycleTracks) d.cycleTracks();
       _syncTaps = diag.syncTaps;
+    }
+    if (_diag.enabled) {
+      // Cada 5 s, los datos técnicos del video (sin URLs).
+      _statsLog = Timer.periodic(const Duration(seconds: 5), (_) {
+        final s = _engine.stats;
+        final st = _engine.state;
+        _diag.log(
+          'stats: ${s.videoWidth ?? '?'}x${s.videoHeight ?? '?'} '
+          '${s.fps?.toStringAsFixed(2) ?? '?'} fps '
+          'video=${s.videoCodec ?? '?'} audio=${s.audioCodec ?? '?'} '
+          '${s.audioChannels ?? '?'} canales ${s.dynamicRange.name} '
+          'hw=${s.hardwareDecoder ?? 'no'} '
+          'bitrate=${s.videoBitrate ?? '?'} '
+          'buffer adelante=${s.bufferAhead.inSeconds} s '
+          'atrás=${s.bufferBehind.inSeconds} s '
+          'caché=${s.cacheLevel ?? '?'} '
+          'pos=${formatPlaybackTime(st.position)}',
+        );
+      });
     }
     final settings = ref.read(appSettingsProvider);
     if (widget.manageWindow) {
@@ -222,6 +242,7 @@ class _PlayerRouteState extends ConsumerState<PlayerRoute> {
 
   @override
   void dispose() {
+    _statsLog?.cancel();
     _active.unregister(_saveNow);
     if (widget.manageWindow) unawaited(_window.setFullScreen(false));
     unawaited(_window.setTitle(appName));

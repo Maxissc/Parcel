@@ -3,7 +3,6 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
-import 'package:http/testing.dart';
 import 'package:parcel_core/parcel_core.dart';
 import 'package:parcel_desktop/app/router.dart';
 import 'package:parcel_desktop/features/detail/cast_section.dart';

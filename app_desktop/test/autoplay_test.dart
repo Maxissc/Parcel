@@ -10,7 +10,6 @@ import 'package:parcel_core/parcel_core.dart';
 import 'package:parcel_desktop/app/diagnostics/diag_log.dart';
 import 'package:parcel_desktop/app/router.dart';
 import 'package:parcel_desktop/data/platform.dart';
-import 'package:parcel_desktop/data/providers.dart';
 import 'package:parcel_desktop/features/player/play_item.dart';
 import 'package:parcel_desktop/features/player/play_args.dart';
 import 'package:parcel_desktop/features/player/player_screen.dart';

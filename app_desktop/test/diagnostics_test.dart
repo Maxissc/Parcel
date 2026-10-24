@@ -98,6 +98,28 @@ void main() {
     expect(off?.playFirstStream, isFalse);
   });
 
+  test(
+    'las variables de reproducción automática llegan a la configuración',
+    () {
+      final config = DiagnosticsConfig.fromEnvironment({
+        'PARCEL_DIAG': '1',
+        'PARCEL_DIAG_AUTOPLAY': '1',
+        'PARCEL_DIAG_SYNC_TAPS': '12.0, 35.5,basura',
+        'PARCEL_DIAG_MIN_PROBE_BYTES': '0',
+      });
+      expect(config?.autoplay, isTrue);
+      expect(config?.syncTaps, [
+        const Duration(seconds: 12),
+        const Duration(seconds: 35, milliseconds: 500),
+      ]);
+      expect(config?.probeMinBytes, 0);
+      final off = DiagnosticsConfig.fromEnvironment({'PARCEL_DIAG': '1'});
+      expect(off?.autoplay, isFalse);
+      expect(off?.syncTaps, isEmpty);
+      expect(off?.probeMinBytes, isNull);
+    },
+  );
+
   group('recorrido de la navegación', () {
     late CatalogWorld world;
 
