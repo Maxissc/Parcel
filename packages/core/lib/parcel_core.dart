@@ -5,6 +5,7 @@ export 'src/aggregation/addon_aggregator.dart';
 export 'src/aggregation/addon_result.dart';
 export 'src/defaults/default_addons.dart';
 export 'src/migration/account_exception.dart';
+export 'src/migration/nuvio_account_client.dart';
 export 'src/migration/pasted_addons_parser.dart';
 export 'src/migration/redact.dart';
 export 'src/migration/stremio_account_client.dart';
