@@ -1,6 +1,7 @@
 // Addon Stremio mínimo SOLO para desarrollo: sirve un catálogo, metas y streams
 // que apuntan a un video local. Uso: dart tool/dev_addon.dart [--port 7000]
-// [--media samples/sample.mkv] y después instalar http://127.0.0.1:7000/manifest.json
+// [--media samples/sample.mkv] [--broken-stream 1] y después instalar
+// http://127.0.0.1:7000/manifest.json
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -8,6 +9,7 @@ import 'dart:io';
 Future<void> main(List<String> args) async {
   final options = _parse(args);
   final port = int.tryParse(options['port'] ?? '') ?? 7000;
+  _brokenStreamFirst = options['broken-stream'] == '1';
   final media = File(options['media'] ?? _defaultMedia());
   if (!media.existsSync()) {
     stderr.writeln(
@@ -115,7 +117,18 @@ Map<String, dynamic> _series() => {
   ],
 };
 
+/// Con `--broken-stream 1`, el primer stream apunta a una URL que no existe y
+/// lleva un token en la query: sirve para comprobar que el token no aparece en
+/// ningún mensaje ni log cuando el video no abre.
+bool _brokenStreamFirst = false;
+
 List<Map<String, dynamic>> _streams(String base) => [
+  if (_brokenStreamFirst)
+    {
+      'name': 'Parcel Dev\nRoto',
+      'description': 'Apunta a una URL que no existe (solo desarrollo)',
+      'url': '$base/no-existe?token=SECRETO',
+    },
   {
     'name': 'Parcel Dev\n1080p',
     'description': 'Video local de prueba\n💾 1 MB',
@@ -189,22 +202,22 @@ Future<void> _serveMedia(HttpRequest request, File media) async {
       media.path.toLowerCase().endsWith('.mp4') ? 'mp4' : 'x-matroska',
     );
 
-  var start = 0;
-  var end = length - 1;
-  final range = request.headers.value(HttpHeaders.rangeHeader);
-  final match = range == null
-      ? null
-      : RegExp(r'bytes=(\d*)-(\d*)').firstMatch(range);
-  if (match != null) {
-    final from = int.tryParse(match.group(1)!);
-    final to = int.tryParse(match.group(2)!);
-    if (from != null) {
-      start = from;
-      if (to != null) end = to;
-    } else if (to != null) {
-      start = length - to;
-    }
-    end = end.clamp(start, length - 1);
+  final range = parseByteRange(
+    request.headers.value(HttpHeaders.rangeHeader),
+    length,
+  );
+  if (range == null) {
+    // Rango que no se puede cumplir: 416 y el tamaño real del archivo.
+    response
+      ..statusCode = HttpStatus.requestedRangeNotSatisfiable
+      ..headers.set(HttpHeaders.contentRangeHeader, 'bytes */$length')
+      ..contentLength = 0;
+    await response.close();
+    return;
+  }
+  final start = range.start;
+  final end = range.end;
+  if (range.partial) {
     response.statusCode = HttpStatus.partialContent;
     response.headers.set(
       HttpHeaders.contentRangeHeader,
@@ -218,4 +231,47 @@ Future<void> _serveMedia(HttpRequest request, File media) async {
   }
   await response.addStream(media.openRead(start, end + 1));
   await response.close();
+}
+
+/// Un tramo de bytes pedido con `Range`.
+class ByteRange {
+  const ByteRange(this.start, this.end, {required this.partial});
+
+  /// Primer y último byte (inclusive).
+  final int start;
+  final int end;
+
+  /// `false` cuando se sirve el archivo entero (sin `Range`).
+  final bool partial;
+}
+
+/// Lee un encabezado `Range: bytes=…` sobre un archivo de [length] bytes.
+///
+/// Sin encabezado (o con uno que no es de bytes) devuelve el archivo entero.
+/// Devuelve `null` si el rango no se puede cumplir (empieza después del final,
+/// termina antes de empezar, o es vacío): ahí corresponde responder 416.
+ByteRange? parseByteRange(String? header, int length) {
+  final match = header == null
+      ? null
+      : RegExp(r'^\s*bytes=(\d*)-(\d*)\s*$').firstMatch(header);
+  if (match == null) {
+    return ByteRange(0, length - 1, partial: false);
+  }
+  final from = int.tryParse(match.group(1)!);
+  final to = int.tryParse(match.group(2)!);
+  if (length <= 0) return null;
+  final int start;
+  final int end;
+  if (from != null) {
+    start = from;
+    end = to == null || to >= length ? length - 1 : to;
+  } else if (to != null && to > 0) {
+    // Los últimos [to] bytes.
+    start = to >= length ? 0 : length - to;
+    end = length - 1;
+  } else {
+    return null; // `bytes=-` o `bytes=-0`
+  }
+  if (start >= length || end < start) return null;
+  return ByteRange(start, end, partial: true);
 }
