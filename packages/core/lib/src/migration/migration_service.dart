@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import '../protocol/addon_exception.dart';
 import '../storage/addon_repository.dart';
 import 'migration_plan.dart';
@@ -73,9 +75,18 @@ class MigrationService {
 
   Future<MigrationItemReport> _install(MigrationCandidate candidate) async {
     final manifest = candidate.manifest;
-    final result = manifest != null
-        ? await _repository.installManifest(candidate.transportUrl, manifest)
-        : await _repository.install(candidate.transportUrl);
+    final InstallResult result;
+    try {
+      result = manifest != null
+          ? await _repository.installManifest(candidate.transportUrl, manifest)
+          : await _repository.install(candidate.transportUrl);
+    } on FileSystemException {
+      return MigrationItemReport(
+        candidate,
+        MigrationOutcome.failed,
+        _describeStorage,
+      );
+    }
     return switch (result) {
       Installed() => MigrationItemReport(
         candidate,
@@ -104,5 +115,8 @@ class MigrationService {
           : 'El addon respondió con un error (HTTP ${error.statusCode}).',
     AddonFailureReason.network => 'No se pudo conectar con el addon.',
     AddonFailureReason.parse => 'El addon no devolvió un manifest válido.',
+    AddonFailureReason.storage => _describeStorage,
   };
+
+  static const String _describeStorage = 'No se pudo guardar en disco.';
 }

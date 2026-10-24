@@ -14,6 +14,9 @@ enum AddonFailureReason {
 
   /// La respuesta no es JSON o no tiene la forma esperada.
   parse,
+
+  /// No se pudo guardar el cambio en el disco.
+  storage,
 }
 
 /// Falla al hablar con un addon.

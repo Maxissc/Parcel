@@ -274,6 +274,84 @@ void main() {
     });
   });
 
+  group('disco que falla', () {
+    // Una carpeta en el lugar del archivo temporal hace fallar la escritura.
+    void breakDisk() => Directory('$filePath.tmp').createSync(recursive: true);
+    void fixDisk() => Directory('$filePath.tmp').deleteSync();
+
+    test('si no se puede guardar, la memoria y el stream no cambian', () async {
+      final repo = await open();
+      await repo.install('https://a.example.com');
+      await repo.install('https://b.example.com');
+      final before = repo.addons;
+      final changes = <List<InstalledAddon>>[];
+      repo.changes.listen(changes.add);
+
+      breakDisk();
+      await expectLater(
+        repo.install('https://c.example.com'),
+        throwsA(isA<FileSystemException>()),
+      );
+      await expectLater(
+        repo.remove('https://a.example.com'),
+        throwsA(isA<FileSystemException>()),
+      );
+      await expectLater(
+        repo.reorder(0, 1),
+        throwsA(isA<FileSystemException>()),
+      );
+      await pumpEventQueue();
+
+      expect(repo.addons, before);
+      expect(changes, isEmpty);
+
+      fixDisk();
+      expect(await repo.install('https://c.example.com'), isA<Installed>());
+      expect(repo.addons.map((a) => a.manifest.id), [
+        'test.a',
+        'test.b',
+        'test.c',
+      ]);
+    });
+
+    test(
+      'installAll sigue con los demás y reporta la que no se guardó',
+      () async {
+        // `a` encuentra el disco roto; antes de `b` se arregla.
+        late AddonRepository repo;
+        repo = await AddonRepository.open(
+          client: AddonClient(
+            MockClient((req) async {
+              if (req.url.host == 'a.example.com') {
+                breakDisk();
+              } else if (Directory('$filePath.tmp').existsSync()) {
+                fixDisk();
+              }
+              return _json(
+                _manifestJson('test.${req.url.host.split('.').first}'),
+              );
+            }),
+          ),
+          filePath: filePath,
+        );
+
+        final reports = await repo.installAll([
+          'https://a.example.com',
+          'https://b.example.com',
+        ]);
+
+        final first = reports.first.result;
+        expect(first, isA<InstallFailed>());
+        expect(
+          (first as InstallFailed).error.reason,
+          AddonFailureReason.storage,
+        );
+        expect(reports.last.result, isA<Installed>());
+        expect(repo.addons.map((a) => a.manifest.id), ['test.b']);
+      },
+    );
+  });
+
   group('archivo en disco', () {
     test('si está corrupto arranca vacío y lo conserva como .bak', () async {
       File(filePath)
