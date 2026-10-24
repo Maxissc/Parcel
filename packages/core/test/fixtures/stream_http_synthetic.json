@@ -1,0 +1,38 @@
+{
+  "_comment": "FIXTURE SINTÉTICO armado a mano siguiendo docs/api/responses/stream.md del SDK de Stremio. No es una respuesta real de ningún addon.",
+  "streams": [
+    {
+      "name": "Sintético 1080p",
+      "description": "Película.1080p.WEB-DL.mkv\n2.1 GB",
+      "url": "https://cdn.example.com/video/pelicula.mkv",
+      "subtitles": [
+        { "id": "es1", "url": "https://cdn.example.com/subs/es.srt", "lang": "spa", "label": "Español" }
+      ],
+      "behaviorHints": {
+        "notWebReady": true,
+        "bingeGroup": "sintetico-1080p",
+        "countryWhitelist": ["arg", "usa"],
+        "videoHash": "8e245d9679d31e12",
+        "videoSize": 2254857830,
+        "filename": "Pelicula.1080p.WEB-DL.mkv",
+        "proxyHeaders": {
+          "request": { "User-Agent": "Parcel", "Referer": "https://example.com/" },
+          "response": { "Content-Type": "video/mp4" }
+        }
+      }
+    },
+    {
+      "name": "Sintético torrent",
+      "title": "Película 720p\n900 MB",
+      "infoHash": "6366e0a6d44d49c8fa09c04669375c024e42bf7e",
+      "fileIdx": 3,
+      "sources": ["tracker:udp://tracker.example.com:1337/announce", "dht:6366e0a6d44d49c8fa09c04669375c024e42bf7e"]
+    },
+    { "name": "Tráiler", "ytId": "VFkjBy2b50Q" },
+    { "name": "Web", "externalUrl": "https://www.example.com/watch/123" },
+    { "name": "Sin fuente" },
+    { "name": "Fuente de tipo raro", "url": 42 },
+    "no soy un objeto",
+    { "name": "FTP", "url": "ftp://files.example.com/pelicula.mkv" }
+  ]
+}

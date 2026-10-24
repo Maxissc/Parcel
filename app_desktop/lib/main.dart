@@ -1,21 +1,28 @@
 import 'package:flutter/material.dart';
-import 'package:parcel_core/parcel_core.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:media_kit/media_kit.dart';
 
-void main() {
-  runApp(const ParcelApp());
-}
+import 'app/app.dart';
+import 'app/diagnostics/diag_log.dart';
+import 'app/diagnostics/playback_diagnostics.dart';
+import 'data/platform.dart';
 
-class ParcelApp extends StatelessWidget {
-  const ParcelApp({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: appName,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.indigo),
-      ),
-      home: const Scaffold(body: Center(child: Text(appName))),
-    );
-  }
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  MediaKit.ensureInitialized();
+  await DesktopWindowService.initialize();
+  runApp(
+    ProviderScope(
+      // Si un proveedor falla (por ejemplo, al abrir los datos), la pantalla
+      // de error ofrece «Reintentar»; no se reintenta solo.
+      retry: (_, _) => null,
+      overrides: [
+        windowServiceProvider.overrideWithValue(const DesktopWindowService()),
+        diagnosticsConfigProvider.overrideWithValue(
+          DiagnosticsConfig.fromEnvironment(),
+        ),
+      ],
+      child: const ParcelApp(),
+    ),
+  );
 }
