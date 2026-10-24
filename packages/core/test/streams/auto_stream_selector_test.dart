@@ -72,17 +72,19 @@ Duration _ms(int n) => Duration(milliseconds: n);
 AutoStreamSelector _selector(
   _Server server, {
   Duration grace = const Duration(milliseconds: 300),
+  int batchSize = 3,
 }) => AutoStreamSelector(
   StreamProber(server.client, timeout: const Duration(seconds: 5)),
+  batchSize: batchSize,
   grace: grace,
 );
 
 void main() {
-  test('los valores por defecto son 3 en paralelo, 9 intentos y 1,5 s', () {
+  test('los valores por defecto son 2 en paralelo, 9 intentos y 1,5 s', () {
     final selector = AutoStreamSelector(
       StreamProber(MockClient((_) async => http.Response('', 200))),
     );
-    expect(selector.batchSize, 3);
+    expect(selector.batchSize, 2);
     expect(selector.maxAttempts, 9);
     expect(selector.grace, const Duration(milliseconds: 1500));
   });
@@ -242,4 +244,83 @@ void main() {
     final result = await _selector(server).select(_streams(12));
     expect(_names(result.alternatives), ['s10', 's11', 's12']);
   });
+
+  test('un batchSize menor a 1 no se acepta', () {
+    final prober = StreamProber(
+      MockClient((_) async => http.Response('', 200)),
+    );
+    expect(() => AutoStreamSelector(prober, batchSize: 0), throwsA(anything));
+  });
+
+  test('no prueba ni elige los no cacheados: quedan al final', () async {
+    final server = _Server({
+      's1': _Behavior.ok(_ms(5)),
+      's2': _Behavior.ok(_ms(5)),
+      's3': _Behavior.ok(_ms(5)),
+    });
+    final streams = [
+      AddonStream.fromJson({
+        'name': 's1 [RD download]',
+        'url': 'https://cdn.example.com/s1',
+      }),
+      AddonStream.fromJson({
+        'name': 's2',
+        'url': 'https://cdn.example.com/s2',
+      }),
+      AddonStream.fromJson({
+        'name': 's3 [RD+]',
+        'url': 'https://cdn.example.com/s3',
+      }),
+    ];
+    final result = await _selector(server).select(streams);
+    expect(result.chosen?.name, 's2');
+    expect(server.requested, isNot(contains('s1')));
+    expect(_names(result.alternatives), ['s3 [RD+]', 's1 [RD download]']);
+    expect(_names(result.unprobed), ['s1 [RD download]']);
+  });
+
+  test('si solo hay no cacheados no pide nada y no elige', () async {
+    final server = _Server({'s1': _Behavior.ok(_ms(5))});
+    final result = await _selector(server).select([
+      AddonStream.fromJson({
+        'name': 's1 ⏳',
+        'url': 'https://cdn.example.com/s1',
+      }),
+    ]);
+    expect(result.chosen, isNull);
+    expect(server.requested, isEmpty);
+    expect(result.attempts, 0);
+    expect(result.alternatives, hasLength(1));
+    expect(result.unprobed, hasLength(1));
+  });
+
+  test('si el prober tira un error cuenta como falla y sigue', () async {
+    final client = MockClient.streaming(
+      (request, _) async => http.StreamedResponse(
+        Stream.value([0]),
+        206,
+        headers: {
+          'content-type': 'video/mp4',
+          'content-range': 'bytes 0-0/900000000',
+        },
+        contentLength: 1,
+      ),
+    );
+    final result = await AutoStreamSelector(
+      _ThrowingProber(client),
+      batchSize: 1,
+    ).select(_streams(2));
+    expect(result.chosen?.name, 's2');
+    expect(result.alternatives, isEmpty);
+  });
+}
+
+class _ThrowingProber extends StreamProber {
+  _ThrowingProber(super.client);
+
+  @override
+  Future<ProbeResult> probe(AddonStream stream, {Future<void>? abortTrigger}) {
+    if (stream.name == 's1') return Future.error(StateError('x'));
+    return super.probe(stream, abortTrigger: abortTrigger);
+  }
 }
