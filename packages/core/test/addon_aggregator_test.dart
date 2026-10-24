@@ -198,6 +198,24 @@ void main() {
       },
     );
 
+    test('un error inesperado de un addon no tumba al resto', () async {
+      final ok = _addon('ok.example.com');
+      final raro = _addon('raro.example.com');
+      final agg = _aggregator([raro, ok], (req) {
+        if (req.url.host == 'raro.example.com') {
+          throw StateError('token-secreto en el mensaje');
+        }
+        return _json({
+          'streams': [_stream('bueno')],
+        });
+      });
+      final results = await agg.streams('movie', 'tt1');
+      final falla = results[0] as AddonFailure<List<AddonStream>>;
+      expect(falla.reason, AddonFailureReason.parse);
+      expect('${falla.error}', isNot(contains('token-secreto')));
+      expect(results[1], isA<AddonSuccess<List<AddonStream>>>());
+    });
+
     test('pide a todos los addons en paralelo', () async {
       final addons = [_addon('a.example.com'), _addon('b.example.com')];
       var started = 0;
