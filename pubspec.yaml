@@ -6,4 +6,5 @@ environment:
   sdk: ^3.13.0
 
 workspace:
+  - app_desktop
   - packages/core
