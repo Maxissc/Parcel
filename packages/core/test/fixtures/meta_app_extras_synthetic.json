@@ -1,0 +1,38 @@
+{
+  "_comment": "FIXTURE SINTÉTICO armado a mano para probar app_extras.cast y la mezcla con cast/links. No es una respuesta real de ningún addon.",
+  "meta": {
+    "id": "tt0000001",
+    "type": "movie",
+    "name": "Película sintética",
+    "country": "Argentina, Spain",
+    "awards": "Premio inventado",
+    "runtime": "110 min",
+    "original_language": "es",
+    "cast": ["Ana Pérez", "Luis Gómez", "Marta Díaz"],
+    "director": ["Dir Uno"],
+    "writer": ["Guionista Uno"],
+    "trailerStreams": [
+      { "title": "Tráiler oficial", "ytId": "abc123" },
+      { "title": "Sin id" },
+      { "ytId": "def456" }
+    ],
+    "links": [
+      { "name": "Ana Pérez", "category": "Cast", "url": "stremio:///search?search=Ana" },
+      { "name": "Pedro Nuevo", "category": "Cast", "url": "stremio:///search?search=Pedro" },
+      { "name": "Dir Uno", "category": "Directors", "url": "stremio:///search?search=Uno" },
+      { "name": "Dir Dos", "category": "Directors", "url": "stremio:///search?search=Dos" },
+      { "name": "Guionista Uno", "category": "Writers", "url": "stremio:///search?search=G1" },
+      { "name": "Guionista Dos", "category": "Writers", "url": "stremio:///search?search=G2" },
+      { "name": "Comedia", "category": "Genres", "url": "stremio:///discover" }
+    ],
+    "app_extras": {
+      "cast": [
+        { "name": "Ana Pérez", "character": "Lucía", "photo": "https://img.example.com/ana.jpg" },
+        { "name": "luis gomez", "character": "Tomás", "photo": null },
+        { "name": "Zoe Extra", "photo": "https://img.example.com/zoe.jpg" },
+        { "character": "Sin nombre", "photo": "https://img.example.com/nadie.jpg" },
+        "no soy un objeto"
+      ]
+    }
+  }
+}

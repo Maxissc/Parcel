@@ -1,4 +1,5 @@
 import 'addon_stream.dart';
+import 'credits.dart';
 import 'json_helpers.dart';
 
 /// Un video de una meta: un episodio de una serie, una emisión de un canal, o
@@ -59,6 +60,68 @@ class Video {
   String toString() => 'Video($id)';
 }
 
+/// Un tráiler de YouTube de una meta (`trailerStreams`).
+class MetaTrailer {
+  const MetaTrailer({required this.ytId, this.title});
+
+  final String ytId;
+  final String? title;
+
+  /// Lanza [FormatException] si falta `ytId`.
+  factory MetaTrailer.fromJson(Map<String, dynamic> json) {
+    final ytId = asNonEmptyString(json['ytId']);
+    if (ytId == null) throw FormatException('Tráiler sin ytId', json);
+    return MetaTrailer(ytId: ytId, title: asNonEmptyString(json['title']));
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is MetaTrailer && other.ytId == ytId && other.title == title;
+
+  @override
+  int get hashCode => Object.hash(ytId, title);
+
+  @override
+  String toString() => 'MetaTrailer($ytId)';
+}
+
+/// Un enlace de una meta (`links`): una categoría (`Cast`, `Directors`,
+/// `Writers`, `Genres`...) con un nombre.
+class MetaLink {
+  const MetaLink({required this.name, required this.category, this.url});
+
+  final String name;
+  final String category;
+  final String? url;
+
+  /// Lanza [FormatException] si falta `name` o `category`.
+  factory MetaLink.fromJson(Map<String, dynamic> json) {
+    final name = asNonEmptyString(json['name']);
+    final category = asNonEmptyString(json['category']);
+    if (name == null || category == null) {
+      throw FormatException('Link sin name o category', json);
+    }
+    return MetaLink(
+      name: name,
+      category: category,
+      url: asNonEmptyString(json['url']),
+    );
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is MetaLink &&
+      other.name == name &&
+      other.category == category &&
+      other.url == url;
+
+  @override
+  int get hashCode => Object.hash(name, category, url);
+
+  @override
+  String toString() => 'MetaLink($category $name)';
+}
+
 /// Metadatos de un contenido. Sirve tanto para los ítems de un catálogo
 /// (sin [videos]) como para el detalle completo.
 class Meta {
@@ -78,6 +141,13 @@ class Meta {
     this.genres = const [],
     this.cast = const [],
     this.directors = const [],
+    this.writers = const [],
+    this.awards,
+    this.country,
+    this.originalLanguage,
+    this.trailerStreams = const [],
+    this.links = const [],
+    this.castDetails = const [],
     this.defaultVideoId,
     this.videos = const [],
   });
@@ -99,10 +169,70 @@ class Meta {
   final List<String> genres;
   final List<String> cast;
   final List<String> directors;
+  final List<String> writers;
+  final String? awards;
+
+  /// País (o países, separados por coma) tal como lo manda el addon.
+  final String? country;
+
+  /// Idioma original (`original_language`, de TMDB o de `app_extras`) tal como
+  /// vino: `es`, `ja`, `eng`...
+  final String? originalLanguage;
+  final List<MetaTrailer> trailerStreams;
+  final List<MetaLink> links;
+
+  /// Elenco con foto y personaje (`app_extras.cast`, o TMDB). Para mostrar el
+  /// elenco mezclado, usar [credits].
+  final List<CastMember> castDetails;
 
   /// Video al que abrir directo (`behaviorHints.defaultVideoId`).
   final String? defaultVideoId;
   final List<Video> videos;
+
+  /// Elenco, dirección y guion sin repetidos. Las fotos y personajes de
+  /// [castDetails] ganan; después van los nombres de [cast] y de los [links]
+  /// `Cast`. La dirección y el guion juntan `director`/`writer` con los links
+  /// `Directors`/`Writers`.
+  Credits get credits => Credits(
+    cast: mergeCast(castDetails, [...cast, ..._linkNames('cast')]),
+    directors: mergeNames([directors, _linkNames('directors')]),
+    writers: mergeNames([writers, _linkNames('writers')]),
+  );
+
+  List<String> _linkNames(String category) => [
+    for (final link in links)
+      if (link.category.toLowerCase() == category) link.name,
+  ];
+
+  /// Copia con [castDetails] y/o [originalLanguage] distintos (por ejemplo, los
+  /// que dio TMDB).
+  Meta copyWith({String? originalLanguage, List<CastMember>? castDetails}) =>
+      Meta(
+        id: id,
+        type: type,
+        name: name,
+        poster: poster,
+        posterShape: posterShape,
+        background: background,
+        logo: logo,
+        description: description,
+        releaseInfo: releaseInfo,
+        released: released,
+        runtime: runtime,
+        imdbRating: imdbRating,
+        genres: genres,
+        cast: cast,
+        directors: directors,
+        writers: writers,
+        awards: awards,
+        country: country,
+        originalLanguage: originalLanguage ?? this.originalLanguage,
+        trailerStreams: trailerStreams,
+        links: links,
+        castDetails: castDetails ?? this.castDetails,
+        defaultVideoId: defaultVideoId,
+        videos: videos,
+      );
 
   /// Lanza [FormatException] si falta `id`, `type` o `name`.
   factory Meta.fromJson(Map<String, dynamic> json) {
@@ -114,6 +244,7 @@ class Meta {
     }
     List<String> strings(String key) =>
         List.unmodifiable(asStringList(json[key]) ?? const []);
+    final extras = asMap(json['app_extras']);
     return Meta(
       id: id,
       type: type,
@@ -130,6 +261,15 @@ class Meta {
       genres: strings('genres'),
       cast: strings('cast'),
       directors: strings('director'),
+      writers: strings('writer'),
+      awards: asNonEmptyString(json['awards']),
+      country: asNonEmptyString(json['country']),
+      originalLanguage:
+          asNonEmptyString(json['original_language']) ??
+          asNonEmptyString(extras?['original_language']),
+      trailerStreams: parseList(json['trailerStreams'], MetaTrailer.fromJson),
+      links: parseList(json['links'], MetaLink.fromJson),
+      castDetails: parseList(extras?['cast'], CastMember.fromJson),
       defaultVideoId: asNonEmptyString(
         asMap(json['behaviorHints'])?['defaultVideoId'],
       ),

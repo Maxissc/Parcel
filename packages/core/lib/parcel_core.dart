@@ -12,6 +12,7 @@ export 'src/migration/pasted_addons_parser.dart';
 export 'src/migration/stremio_account_client.dart';
 export 'src/models/addon_manifest.dart';
 export 'src/models/addon_stream.dart';
+export 'src/models/credits.dart' show CastMember, Credits;
 export 'src/models/installed_addon.dart';
 export 'src/models/meta.dart';
 export 'src/models/playback_progress.dart';
