@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -172,6 +174,10 @@ class CatalogWorld {
   /// Rutas (`host/ruta`) que responden 500.
   final Set<String> failing = {};
 
+  /// Rutas (`host/ruta`) que no responden hasta que se completa su
+  /// completer.
+  final Map<String, Completer<void>> gates = {};
+
   /// Cuántos pedidos hay en [requests] que contienen [fragment].
   int count(String fragment) =>
       requests.where((r) => r.contains(fragment)).length;
@@ -187,6 +193,7 @@ class CatalogWorld {
       secondStreamsAddonUrl: streamsManifest('org.example.more', 'Streams dos'),
     }[url.toString()];
     if (manifest != null) return jsonResponse(manifest);
+    await gates[key]?.future;
     if (failing.contains(key)) return http.Response('error', 500);
     final body = routes[key];
     if (body != null) return jsonResponse(body);

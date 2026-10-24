@@ -9,6 +9,8 @@ import '../features/onboarding/onboarding_screen.dart';
 import '../features/player/player_route.dart';
 import '../features/search/search_screen.dart';
 import '../features/settings/settings_screen.dart';
+import '../features/streams/streams_args.dart';
+import '../features/streams/streams_screen.dart';
 import '../shared/state_views.dart';
 import 'shell.dart';
 
@@ -44,6 +46,9 @@ final routerProvider = Provider<GoRouter>((ref) {
       if (location == Routes.player && state.extra is! PlayerArgs) {
         return Routes.home;
       }
+      if (location == Routes.streams && state.extra is! StreamsArgs) {
+        return Routes.home;
+      }
       if (location != Routes.onboarding &&
           location != Routes.player &&
           needsOnboarding(ref)) {
@@ -66,6 +71,11 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: Routes.player,
         builder: (context, state) =>
             PlayerRoute(args: state.extra! as PlayerArgs),
+      ),
+      GoRoute(
+        path: Routes.streams,
+        builder: (context, state) =>
+            StreamsScreen(args: state.extra! as StreamsArgs),
       ),
       StatefulShellRoute.indexedStack(
         builder: (context, state, shell) => AppShell(navigationShell: shell),
