@@ -116,8 +116,8 @@ class AddonManifest {
     required this.idPrefixes,
     required this.resources,
     required this.catalogs,
-    required Map<String, dynamic> raw,
-  }) : _raw = raw;
+    required this._raw,
+  });
 
   final String id;
   final String name;
