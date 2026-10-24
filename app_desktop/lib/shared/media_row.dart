@@ -73,7 +73,8 @@ class Shelf extends StatefulWidget {
   final int itemCount;
   final IndexedWidgetBuilder itemBuilder;
 
-  static const double height = 210 + PosterSize.captionHeight + 12;
+  static const double height =
+      210 + PosterSize.captionHeight + Spacing.sm + Spacing.md;
 
   @override
   State<Shelf> createState() => _ShelfState();

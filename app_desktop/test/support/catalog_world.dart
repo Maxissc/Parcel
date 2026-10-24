@@ -157,6 +157,9 @@ class CatalogWorld {
         ],
       },
       'v3-cinemeta.strem.io/catalog/movie/empty.json': {'metas': []},
+      'v3-cinemeta.strem.io/catalog/movie/broken.json': {
+        'metas': [metaItem('tt0000001', 'Se recuperó')],
+      },
       'v3-cinemeta.strem.io/meta/movie/tt0133093.json': {
         'meta': movieMeta('tt0133093', 'The Matrix'),
       },

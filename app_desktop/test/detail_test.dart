@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:parcel_core/parcel_core.dart';
 import 'package:parcel_desktop/app/router.dart';
 import 'package:parcel_desktop/data/platform.dart';
+import 'package:parcel_desktop/features/detail/detail_screen.dart';
 import 'package:parcel_desktop/features/detail/detail_utils.dart';
 import 'package:parcel_desktop/features/player/player_screen.dart';
 import 'package:parcel_desktop/features/streams/streams_screen.dart';
@@ -269,7 +270,7 @@ void main() {
     await tester.sendKeyEvent(LogicalKeyboardKey.escape);
     await pumpIo(tester, ticks: 6);
 
-    expect(find.text('The Matrix'), findsNothing);
+    expect(find.byType(DetailScreen), findsNothing);
     expect(find.byType(NavigationRail), findsOneWidget);
   });
 

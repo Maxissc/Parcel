@@ -40,8 +40,11 @@ void main() {
         findsOneWidget,
       );
     }
-    // Inicio y Buscar todavía son marcadores de lugar.
-    expect(find.text('Próximamente'), findsOneWidget);
+    // Cinemeta de este test no trae catálogos: Inicio lo explica.
+    expect(
+      find.text('Tus addons no traen catálogos para el inicio'),
+      findsOneWidget,
+    );
   });
 
   testWidgets(
@@ -82,16 +85,11 @@ void main() {
     );
 
     await ctrl(LogicalKeyboardKey.digit2);
-    expect(
-      find.text('Acá vas a buscar películas y series en todos tus addons.'),
-      findsOneWidget,
-    );
+    expect(find.text('Ningún addon instalado permite buscar'), findsOneWidget);
 
     await ctrl(LogicalKeyboardKey.digit1);
     expect(
-      find.text(
-        'Acá vas a ver lo que estás mirando y los catálogos de tus addons.',
-      ),
+      find.text('Tus addons no traen catálogos para el inicio'),
       findsOneWidget,
     );
   });
