@@ -100,6 +100,30 @@ void main() {
     expect(find.byKey(const Key('detail-continue')), findsNothing);
   });
 
+  testWidgets('una serie con mil episodios solo arma los que se ven', (
+    tester,
+  ) async {
+    world.routes[_bbMeta] = {
+      'meta': seriesMeta('tt0903747', 'Breaking Bad', episodes: {1: 1000}),
+    };
+    await openDetail(tester, Routes.detailPath('series', 'tt0903747'));
+
+    final built = find.textContaining('Episodio 1x').evaluate().length;
+    expect(built, greaterThan(0));
+    expect(built, lessThan(40));
+
+    // Los de más abajo aparecen al desplazarse.
+    final last = find.text('1000. Episodio 1x1000');
+    expect(last, findsNothing);
+    await tester.scrollUntilVisible(
+      last,
+      800,
+      scrollable: find.byType(Scrollable).first,
+      maxScrolls: 400,
+    );
+    expect(last, findsOneWidget);
+  });
+
   testWidgets('el selector lista las temporadas con los especiales al final', (
     tester,
   ) async {
@@ -234,6 +258,10 @@ void main() {
     await openDetail(tester, Routes.detailPath('series', 'tt0903747'));
 
     expect(find.text('No pudimos abrir el detalle'), findsOneWidget);
+    expect(
+      find.text('El addon respondió con un error (HTTP 500).'),
+      findsOneWidget,
+    );
     expect(find.text('Reintentar'), findsOneWidget);
 
     world.failing.clear();

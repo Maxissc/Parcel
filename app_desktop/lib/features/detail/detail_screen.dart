@@ -10,7 +10,6 @@ import '../../app/theme.dart';
 import '../../data/browse_providers.dart';
 import '../../data/progress_providers.dart';
 import '../../data/providers.dart';
-import '../../shared/media_labels.dart';
 import '../../shared/remote_image.dart';
 import '../../shared/skeleton.dart';
 import '../../shared/state_views.dart';
@@ -53,7 +52,7 @@ class DetailScreen extends ConsumerWidget {
       data: (result) => switch (result) {
         AddonSuccess(:final value) => _DetailBody(meta: value),
         AddonFailure(:final error) => _fallback(
-          message: 'El addon ${failureText(error).toLowerCase()}.',
+          message: _metaFailureMessage(error),
           onRetry: retry,
         ),
         null => _fallback(
@@ -110,6 +109,20 @@ class DetailScreen extends ConsumerWidget {
   }
 }
 
+/// Frase completa de por qué el addon no pudo dar los datos del contenido.
+String _metaFailureMessage(AddonException error) => switch (error.reason) {
+  AddonFailureReason.timeout => 'El addon no respondió a tiempo.',
+  AddonFailureReason.network => 'No se pudo conectar con el addon.',
+  AddonFailureReason.http =>
+    error.statusCode == null
+        ? 'El addon respondió con un error.'
+        : 'El addon respondió con un error (HTTP ${error.statusCode}).',
+  AddonFailureReason.parse =>
+    'El addon mandó una respuesta que Parcel no entiende.',
+  AddonFailureReason.invalidUrl => 'La dirección del addon no es válida.',
+  AddonFailureReason.storage => 'No se pudo guardar en disco.',
+};
+
 class _DetailSkeleton extends StatelessWidget {
   const _DetailSkeleton();
 
@@ -144,7 +157,7 @@ class _DetailSkeleton extends StatelessWidget {
   }
 }
 
-class _DetailBody extends ConsumerWidget {
+class _DetailBody extends ConsumerStatefulWidget {
   const _DetailBody({
     required this.meta,
     this.loading = false,
@@ -162,21 +175,51 @@ class _DetailBody extends ConsumerWidget {
   final VoidCallback? onRetry;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_DetailBody> createState() => _DetailBodyState();
+}
+
+/// Ancho máximo del contenido del detalle.
+const double _detailMaxWidth = 1100;
+
+class _DetailBodyState extends ConsumerState<_DetailBody> {
+  final ScrollController _scroll = ScrollController();
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final meta = widget.meta;
+    final loading = widget.loading;
+    final notice = widget.notice;
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final background = meta.background ?? meta.poster;
-    final wide = MediaQuery.sizeOf(context).width >= 800;
+    final width = MediaQuery.sizeOf(context).width;
+    final wide = width >= 800;
+    // El contenido va centrado con un ancho máximo; el margen se reparte a los
+    // costados para que la lista de episodios pueda ser perezosa.
+    final side =
+        Spacing.xl +
+        (width > _detailMaxWidth ? (width - _detailMaxWidth) / 2 : 0);
 
-    return SingleChildScrollView(
-      child: Stack(
-        children: [
-          // Fondo con degradado hacia el color de la pantalla.
-          Positioned(
-            top: 0,
+    return Stack(
+      children: [
+        // Fondo con degradado hacia el color de la pantalla. Sube junto con el
+        // contenido sin estar dentro de la lista.
+        ListenableBuilder(
+          listenable: _scroll,
+          builder: (context, child) => Positioned(
+            top: _scroll.hasClients ? -_scroll.offset : 0,
             left: 0,
             right: 0,
             height: 560,
+            child: child!,
+          ),
+          child: RepaintBoundary(
             child: ExcludeSemantics(
               child: Stack(
                 fit: StackFit.expand,
@@ -216,17 +259,13 @@ class _DetailBody extends ConsumerWidget {
               ),
             ),
           ),
-          Align(
-            alignment: Alignment.topCenter,
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 1100),
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(
-                  Spacing.xl,
-                  96,
-                  Spacing.xl,
-                  Spacing.xl,
-                ),
+        ),
+        CustomScrollView(
+          controller: _scroll,
+          slivers: [
+            SliverPadding(
+              padding: EdgeInsets.fromLTRB(side, 96, side, 0),
+              sliver: SliverToBoxAdapter(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -244,27 +283,29 @@ class _DetailBody extends ConsumerWidget {
                     ),
                     if (notice != null) ...[
                       const SizedBox(height: Spacing.lg),
-                      _Notice(message: notice!, onRetry: onRetry),
+                      _Notice(message: notice, onRetry: widget.onRetry),
                     ],
                     const SizedBox(height: Spacing.xl),
-                    if (hasEpisodes(meta))
-                      _Episodes(meta: meta)
-                    else if (loading && meta.type != 'movie')
-                      const _EpisodesSkeleton()
-                    else if (meta.type == 'series' && notice != null)
-                      Text(
-                        'No encontramos los episodios.',
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          color: scheme.onSurfaceVariant,
+                    if (!hasEpisodes(meta))
+                      if (loading && meta.type != 'movie')
+                        const _EpisodesSkeleton()
+                      else if (meta.type == 'series' && notice != null)
+                        Text(
+                          'No encontramos los episodios.',
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: scheme.onSurfaceVariant,
+                          ),
                         ),
-                      ),
                   ],
                 ),
               ),
             ),
-          ),
-        ],
-      ),
+            if (hasEpisodes(meta))
+              _Episodes(meta: meta, horizontalPadding: side),
+            const SliverToBoxAdapter(child: SizedBox(height: Spacing.xl)),
+          ],
+        ),
+      ],
     );
   }
 }
@@ -550,10 +591,14 @@ class _Actions extends ConsumerWidget {
 }
 
 /// Selector de temporada y lista de episodios.
+///
+/// Es un sliver: los episodios se arman a medida que se ven, porque una serie
+/// puede tener cientos.
 class _Episodes extends ConsumerStatefulWidget {
-  const _Episodes({required this.meta});
+  const _Episodes({required this.meta, required this.horizontalPadding});
 
   final Meta meta;
+  final double horizontalPadding;
 
   @override
   ConsumerState<_Episodes> createState() => _EpisodesState();
@@ -578,7 +623,7 @@ class _EpisodesState extends ConsumerState<_Episodes> {
         seasons.first;
     final episodes = episodesOf(meta, selected);
 
-    return Column(
+    final header = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
@@ -612,19 +657,33 @@ class _EpisodesState extends ConsumerState<_Episodes> {
           ],
         ),
         const SizedBox(height: Spacing.md),
-        for (final video in episodes)
-          Padding(
-            padding: const EdgeInsets.only(bottom: Spacing.sm),
-            child: _EpisodeTile(
-              video: video,
-              progress: progressOf(video.id),
-              onTap: () => context.push(
-                Routes.streams,
-                extra: StreamsArgs(meta: meta, video: video),
-              ),
-            ),
-          ),
       ],
+    );
+
+    return SliverPadding(
+      padding: EdgeInsets.symmetric(horizontal: widget.horizontalPadding),
+      sliver: SliverMainAxisGroup(
+        slivers: [
+          SliverToBoxAdapter(child: header),
+          SliverList.builder(
+            itemCount: episodes.length,
+            itemBuilder: (context, index) {
+              final video = episodes[index];
+              return Padding(
+                padding: const EdgeInsets.only(bottom: Spacing.sm),
+                child: _EpisodeTile(
+                  video: video,
+                  progress: progressOf(video.id),
+                  onTap: () => context.push(
+                    Routes.streams,
+                    extra: StreamsArgs(meta: meta, video: video),
+                  ),
+                ),
+              );
+            },
+          ),
+        ],
+      ),
     );
   }
 }
