@@ -29,6 +29,8 @@ export 'src/playback/playback_source.dart';
 export 'src/playback/playback_state.dart';
 export 'src/playback/playback_track.dart';
 export 'src/playback/playback_utils.dart';
+export 'src/streams/stream_ranking.dart';
+export 'src/streams/stream_signals.dart';
 
 /// Nombre de la app, para mostrar en la interfaz.
 const String appName = 'Parcel';
