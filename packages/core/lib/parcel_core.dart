@@ -4,6 +4,7 @@ library;
 export 'src/aggregation/addon_aggregator.dart';
 export 'src/aggregation/addon_result.dart';
 export 'src/defaults/default_addons.dart';
+export 'src/metadata/tmdb_client.dart';
 export 'src/migration/account_exception.dart';
 export 'src/migration/migration_plan.dart';
 export 'src/migration/migration_service.dart';
