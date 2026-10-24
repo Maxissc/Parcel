@@ -10,6 +10,9 @@ enum ResumeMode {
 
   /// Retoma directo donde quedó.
   resume,
+
+  /// Empieza de cero sin preguntar (el usuario ya eligió «Desde el principio»).
+  fromStart,
 }
 
 /// Qué se está reproduciendo: la meta, el episodio (si es una serie) y el
@@ -21,6 +24,7 @@ class PlayItem {
     this.video,
     required this.stream,
     this.addonUrl,
+    this.addonName,
   });
 
   final Meta meta;
@@ -31,6 +35,9 @@ class PlayItem {
 
   /// `transportUrl` del addon que ofreció el stream.
   final String? addonUrl;
+
+  /// Nombre del addon que ofreció el stream.
+  final String? addonName;
 
   String get type => meta.type;
 

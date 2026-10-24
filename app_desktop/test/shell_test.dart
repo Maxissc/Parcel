@@ -119,6 +119,8 @@ void main() {
       final client = mockWorld(defaultRoutes());
       await seedData(tester, dir, client, urls: [cinemetaUrl]);
       await pumpApp(tester, dir, client);
+      // Los ajustes son largos: una ventana alta los muestra sin scroll.
+      tester.view.physicalSize = const Size(1280, 1800);
       await tester.tap(
         find.descendant(
           of: find.byType(NavigationRail),
@@ -163,7 +165,8 @@ void main() {
         final dropdown = tester.widget<DropdownButton<String>>(
           find.byKey(const Key('audio-language')),
         );
-        expect(dropdown.value, '');
+        // Vuelve a lo que había (el audio «Original» es el defecto).
+        expect(dropdown.value, 'original');
       },
     );
 
@@ -187,6 +190,7 @@ void main() {
         client,
         overrides: [dataResetProvider.overrideWith(_FailingReset.new)],
       );
+      tester.view.physicalSize = const Size(1280, 1800);
       await tester.tap(
         find.descendant(
           of: find.byType(NavigationRail),
@@ -194,7 +198,6 @@ void main() {
         ),
       );
       await tester.pump(const Duration(milliseconds: 100));
-      await tester.scrollUntilVisible(find.text('Borrar todos los datos'), 200);
       await tester.tap(find.text('Borrar todos los datos'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Borrar todo'));
@@ -210,7 +213,6 @@ void main() {
       'muestra versión, licencia y el aviso de que no incluye contenido',
       (tester) async {
         await openSettings(tester);
-        await tester.scrollUntilVisible(find.text('Licencia MIT'), 200);
 
         expect(find.text('Licencia MIT'), findsOneWidget);
         expect(
@@ -225,10 +227,6 @@ void main() {
       (tester) async {
         await openSettings(tester);
         expect(File('${dir.path}/addons.json').existsSync(), isTrue);
-        await tester.scrollUntilVisible(
-          find.text('Borrar todos los datos'),
-          200,
-        );
 
         // Cancelar no borra nada.
         await tester.tap(find.text('Borrar todos los datos'));
@@ -252,10 +250,6 @@ void main() {
       tester,
     ) async {
       await openSettings(tester);
-      await tester.scrollUntilVisible(
-        find.text('Volver a correr el asistente'),
-        200,
-      );
       await tester.tap(find.text('Volver a correr el asistente'));
       await tester.pumpAndSettle();
 
@@ -278,6 +272,7 @@ void main() {
           playbackEngineFactoryProvider.overrideWithValue(() => engine),
         ],
       );
+      tester.view.physicalSize = const Size(1280, 1800);
       await tester.tap(
         find.descendant(
           of: find.byType(NavigationRail),
@@ -285,8 +280,6 @@ void main() {
         ),
       );
       await tester.pump(const Duration(milliseconds: 100));
-
-      await tester.scrollUntilVisible(find.text('Probar reproductor'), 200);
       await tester.tap(find.text('Probar reproductor'));
       await tester.pumpAndSettle();
 

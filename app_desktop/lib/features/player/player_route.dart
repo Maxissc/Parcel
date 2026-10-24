@@ -10,12 +10,18 @@ import '../../app/diagnostics/diag_log.dart';
 import '../../app/diagnostics/playback_diagnostics.dart';
 import '../../app/router.dart';
 import '../../data/platform.dart';
+import '../../data/playback_providers.dart';
 import '../../data/progress_providers.dart';
 import '../../data/providers.dart';
+import '../../playback/playback_errors.dart';
 import '../streams/streams_args.dart';
 import 'addon_subtitles.dart';
+import 'play_args.dart';
 import 'play_item.dart';
+import 'player_info.dart';
 import 'player_screen.dart';
+import 'source_menu.dart';
+import 'subtitle_catalog.dart';
 import 'track_preferences.dart';
 
 /// Qué reproducir en la ruta `/player`.
@@ -27,6 +33,7 @@ class PlayerArgs {
     this.headers = const {},
     this.item,
     this.resume = ResumeMode.ask,
+    this.startAt,
   });
 
   final String url;
@@ -41,15 +48,74 @@ class PlayerArgs {
   /// (una URL de prueba) no hace nada de eso.
   final PlayItem? item;
   final ResumeMode resume;
+
+  /// Desde dónde arrancar, si ya se sabe (por ejemplo, al cambiar de fuente a
+  /// mitad del video). Gana sobre [resume].
+  final Duration? startAt;
+}
+
+/// Pregunta «Continuar desde…» o «Desde el principio». Devuelve `true` para
+/// continuar, `false` para empezar de cero y `null` si el usuario se arrepintió
+/// (Esc).
+Future<bool?> askResume(BuildContext context, PlaybackProgress saved) {
+  return showDialog<bool>(
+    context: context,
+    barrierDismissible: false,
+    builder: (context) => CallbackShortcuts(
+      // Esc es «volver»: cierra la pregunta y el reproductor, sin reproducir.
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.escape): () =>
+            Navigator.of(context).pop(),
+      },
+      child: AlertDialog(
+        title: const Text('Ya empezaste esto'),
+        content: Text(
+          'Lo dejaste en ${formatPlaybackTime(saved.position)} de '
+          '${formatPlaybackTime(saved.duration)}.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Desde el principio'),
+          ),
+          FilledButton(
+            autofocus: true,
+            onPressed: () => Navigator.of(context).pop(true),
+            child: Text(
+              'Continuar desde ${formatPlaybackTime(saved.position)}',
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
 }
 
 /// Ruta del reproductor: crea el motor, pone la ventana en pantalla completa
-/// mientras dura y arma el diagnóstico si está activo. Si el video ya se había
-/// empezado, antes pregunta si continuar.
+/// (si el ajuste lo pide) mientras dura y arma el diagnóstico si está activo.
+/// Si el video ya se había empezado, antes pregunta si continuar.
+///
+/// Dentro de la ruta `/play` la maneja [PlayRoute] (que elige y cambia de
+/// fuente): le pasa [sourceMenu] y [onOpenFailed] y se queda con la ventana
+/// ([manageWindow] en `false`).
 class PlayerRoute extends ConsumerStatefulWidget {
-  const PlayerRoute({super.key, required this.args});
+  const PlayerRoute({
+    super.key,
+    required this.args,
+    this.sourceMenu,
+    this.onOpenFailed,
+    this.manageWindow = true,
+    this.popBeforeNext = true,
+  });
 
   final PlayerArgs args;
+  final SourceMenu? sourceMenu;
+  final VoidCallback? onOpenFailed;
+  final bool manageWindow;
+
+  /// Al pasar al episodio que sigue, primero cierra esta ruta (porque debajo
+  /// está la pantalla de streams del episodio anterior, que se reemplaza).
+  final bool popBeforeNext;
 
   @override
   ConsumerState<PlayerRoute> createState() => _PlayerRouteState();
@@ -61,8 +127,11 @@ class _PlayerRouteState extends ConsumerState<PlayerRoute> {
   late final ProgressSaver _saver;
   late final DiagLog _diag;
   late final ActivePlayer _active;
+  late final Map<String, Duration> _delays;
   Future<List<Subtitle>>? _addonSubtitles;
+  SubtitleCatalog? _catalog;
   TrackPreferences? _preferences;
+  List<Duration> _syncTaps = const [];
 
   /// Desde dónde arranca; `null` mientras se espera la respuesta del usuario.
   Duration? _start;
@@ -76,33 +145,47 @@ class _PlayerRouteState extends ConsumerState<PlayerRoute> {
     _window = ref.read(windowServiceProvider);
     _saver = ref.read(progressSaverProvider);
     _diag = ref.read(diagLogProvider);
+    _delays = ref.read(subtitleDelaysProvider);
     _active = ref.read(activePlayerProvider)..register(_saveNow);
     _engine = ref.read(playbackEngineFactoryProvider)();
     final diag = ref.read(diagnosticsConfigProvider);
     if (diag != null) {
       final d = PlaybackDiagnostics(_engine, config: diag)..start();
       if (diag.cycleTracks) d.cycleTracks();
+      _syncTaps = diag.syncTaps;
     }
-    _window.setFullScreen(true);
+    final settings = ref.read(appSettingsProvider);
+    if (widget.manageWindow) {
+      unawaited(_window.setFullScreen(settings.openFullScreen));
+    }
     final title = _args.item?.title ?? _args.title;
     if (title != null) unawaited(_window.setTitle('$title · $appName'));
 
     final item = _args.item;
     if (item != null) {
-      final settings = ref.read(appSettingsProvider);
       _preferences = TrackPreferences(
         audioLanguage: settings.audioLanguage,
         subtitleLanguage: settings.subtitleLanguage,
+        originalLanguage: inferOriginalLanguage(item.meta),
+      );
+      _catalog = SubtitleCatalog(
+        fetcher: ref.read(subtitleFetcherProvider),
+        priority:
+            subtitlePriorityFor(settings.subtitleLanguage) ??
+            SubtitleLanguage.defaultPriority,
       );
       _addonSubtitles = fetchAddonSubtitles(
         ref.read(addonAggregatorProvider),
         item,
-        preferredLanguage: settings.subtitleLanguage,
       );
     }
 
     final saved = _savedProgress();
-    if (saved == null) {
+    if (_args.startAt != null) {
+      _start = _args.startAt;
+    } else if (_args.resume == ResumeMode.fromStart) {
+      _start = Duration.zero;
+    } else if (saved == null) {
       _start = Duration.zero;
     } else if (_args.resume == ResumeMode.resume) {
       _start = saved.position;
@@ -124,37 +207,7 @@ class _PlayerRouteState extends ConsumerState<PlayerRoute> {
   }
 
   Future<void> _askResume(PlaybackProgress saved) async {
-    final choice = await showDialog<bool>(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => CallbackShortcuts(
-        // Esc es «volver»: cierra la pregunta y el reproductor, sin reproducir.
-        bindings: {
-          const SingleActivator(LogicalKeyboardKey.escape): () =>
-              Navigator.of(context).pop(),
-        },
-        child: AlertDialog(
-          title: const Text('Ya empezaste esto'),
-          content: Text(
-            'Lo dejaste en ${formatPlaybackTime(saved.position)} de '
-            '${formatPlaybackTime(saved.duration)}.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('Desde el principio'),
-            ),
-            FilledButton(
-              autofocus: true,
-              onPressed: () => Navigator.of(context).pop(true),
-              child: Text(
-                'Continuar desde ${formatPlaybackTime(saved.position)}',
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
+    final choice = await askResume(context, saved);
     if (!mounted) return;
     if (choice == null) {
       if (context.canPop()) {
@@ -170,8 +223,9 @@ class _PlayerRouteState extends ConsumerState<PlayerRoute> {
   @override
   void dispose() {
     _active.unregister(_saveNow);
-    _window.setFullScreen(false);
+    if (widget.manageWindow) unawaited(_window.setFullScreen(false));
     unawaited(_window.setTitle(appName));
+    _catalog?.dispose();
     // Si nunca se llegó a armar la pantalla, el motor sigue siendo de la ruta.
     if (!_screenBuilt) unawaited(_engine.dispose());
     super.dispose();
@@ -231,21 +285,59 @@ class _PlayerRouteState extends ConsumerState<PlayerRoute> {
       label: label.isEmpty ? 'Siguiente episodio' : label,
       onOpen: (context) {
         final router = GoRouter.of(context);
-        // Cierra el reproductor y cambia la lista de streams anterior por la
-        // del episodio que sigue.
-        router.pop();
+        final auto = ref.read(appSettingsProvider).autoSelectSource;
+        // Cierra el reproductor y cambia la pantalla anterior (la lista de
+        // streams del episodio que terminó) por la del que sigue.
+        if (widget.popBeforeNext) router.pop();
         unawaited(
-          router.pushReplacement(
-            Routes.streams,
-            extra: StreamsArgs(
-              meta: item.meta,
-              video: next,
-              preferAddonUrl: item.addonUrl,
-              preferBingeGroup: item.stream.behaviorHints.bingeGroup,
-            ),
-          ),
+          auto
+              ? router.pushReplacement(
+                  Routes.play,
+                  extra: PlayArgs(
+                    meta: item.meta,
+                    video: next,
+                    preferAddonUrl: item.addonUrl,
+                    preferBingeGroup: item.stream.behaviorHints.bingeGroup,
+                  ),
+                )
+              : router.pushReplacement(
+                  Routes.streams,
+                  extra: StreamsArgs(
+                    meta: item.meta,
+                    video: next,
+                    preferAddonUrl: item.addonUrl,
+                    preferBingeGroup: item.stream.behaviorHints.bingeGroup,
+                  ),
+                ),
         );
       },
+    );
+  }
+
+  PlayerInfo? _info() {
+    final item = _args.item;
+    if (item == null) return null;
+    final meta = item.meta;
+    final text = [
+      item.stream.name,
+      item.stream.title,
+      item.stream.description,
+      item.stream.behaviorHints.filename,
+    ].whereType<String>().join(' ');
+    final year = meta.releaseInfo ?? meta.released?.year.toString();
+    final name = item.stream.name
+        ?.split('\n')
+        .map((l) => l.trim())
+        .where((l) => l.isNotEmpty)
+        .join(' · ');
+    return PlayerInfo(
+      addonName: item.addonName,
+      streamName: name == null ? null : redactUrlsInText(name),
+      atmos: RegExp(r'atmos', caseSensitive: false).hasMatch(text),
+      imdbRating: meta.imdbRating,
+      year: year,
+      runtime: meta.runtime,
+      genres: meta.genres,
     );
   }
 
@@ -257,6 +349,8 @@ class _PlayerRouteState extends ConsumerState<PlayerRoute> {
     }
     _screenBuilt = true;
     final args = _args;
+    final item = args.item;
+    final delayKey = item == null ? null : '${item.type}:${item.videoId}';
     return PlayerScreen(
       engine: _engine,
       source: PlaybackSource(
@@ -264,7 +358,7 @@ class _PlayerRouteState extends ConsumerState<PlayerRoute> {
         headers: args.headers,
         startPosition: start,
       ),
-      title: args.item?.title ?? args.title,
+      title: item?.title ?? args.title,
       subtitles: [
         if (args.subtitleUrl != null)
           Subtitle(
@@ -275,10 +369,20 @@ class _PlayerRouteState extends ConsumerState<PlayerRoute> {
           ),
       ],
       lateSubtitles: _addonSubtitles,
+      catalog: _catalog,
       preferences: _preferences,
       window: _window,
-      onProgress: args.item == null ? null : _saveProgress,
+      onProgress: item == null ? null : _saveProgress,
       next: _nextEpisode(),
+      info: _info(),
+      sourceMenu: widget.sourceMenu,
+      onOpenFailed: widget.onOpenFailed,
+      initialSubtitleDelay: _delays[delayKey] ?? Duration.zero,
+      onSubtitleDelayChanged: delayKey == null
+          ? null
+          : (d) => _delays[delayKey] = d,
+      onDecision: (message) => _diag.log('reproductor: $message'),
+      syncTaps: _syncTaps,
     );
   }
 }

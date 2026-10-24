@@ -67,13 +67,18 @@ void main() {
     List<String> addons = const [streamsAddonUrl, secondStreamsAddonUrl],
     List<Uri>? openedUrls,
     FakePlaybackEngine? engine,
+    List<FakePlaybackEngine> more = const [],
+    bool? autoSelectSource,
   }) async {
+    // Cada vez que se abre un reproductor sale el siguiente motor de la fila.
+    final engines = [?engine, ...more];
     await seedData(
       tester,
       dir,
       world.client,
       urls: [cinemetaUrl, subtitlesUrl, ...addons],
       onboardingCompleted: true,
+      autoSelectSource: autoSelectSource,
     );
     await pumpApp(
       tester,
@@ -81,8 +86,10 @@ void main() {
       world.client,
       openedUrls: openedUrls,
       overrides: [
-        if (engine != null)
-          playbackEngineFactoryProvider.overrideWithValue(() => engine),
+        if (engines.isNotEmpty)
+          playbackEngineFactoryProvider.overrideWithValue(
+            () => engines.length > 1 ? engines.removeAt(0) : engines.first,
+          ),
       ],
     );
     routerOf(tester).push(Routes.streams, extra: args);
@@ -272,9 +279,10 @@ void main() {
       expect(find.text('Del mismo addon'), findsOneWidget);
       expect(find.text('Igual que el anterior'), findsNothing);
 
+      // El sugerido es el primero del ranking del addon (1080p antes que 720p).
       await tester.sendKeyEvent(LogicalKeyboardKey.enter);
       await pumpIo(tester, ticks: 4);
-      expect(engine.lastSource?.url, 'http://media.example.com/dos.mkv');
+      expect(engine.lastSource?.url, 'http://media.example.com/dos2.mkv');
     },
   );
 
@@ -305,11 +313,15 @@ void main() {
       final engine = FakePlaybackEngine(
         mediaDuration: const Duration(minutes: 10),
       );
+      final nextEngine = FakePlaybackEngine(
+        mediaDuration: const Duration(minutes: 10),
+      );
       await openStreams(
         tester,
         StreamsArgs(meta: meta, video: meta.videos[2]),
         addons: const [streamsAddonUrl],
         engine: engine,
+        more: [nextEngine],
       );
       await tester.tap(find.text('Episodio 3'));
       await pumpIo(tester, ticks: 4);
@@ -321,16 +333,64 @@ void main() {
       await tester.tap(find.text('Ver siguiente episodio'));
       await pumpIo(tester, ticks: 6);
 
+      // El siguiente episodio arranca solo, con el mismo addon y bingeGroup.
+      expect(find.byType(StreamsScreen), findsNothing);
+      expect(find.byType(PlayerScreen), findsOneWidget);
+      expect(nextEngine.lastSource?.url, 'http://media.example.com/e4.mkv');
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await pumpIo(tester, ticks: 6);
+      expect(find.byType(PlayerScreen), findsNothing);
+      expect(find.byType(NavigationRail), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'con la fuente automática apagada, «siguiente» abre la lista de streams',
+    (tester) async {
+      final meta = Meta.fromJson(seriesMeta('tt0903747', 'Breaking Bad'));
+      world.routes['streams.example.com/stream/series/tt0903747:1:3.json'] = {
+        'streams': [
+          {
+            'name': 'Streams uno',
+            'title': 'Episodio 3',
+            'url': 'http://media.example.com/e3.mkv',
+            'behaviorHints': {'bingeGroup': 'uno-1080'},
+          },
+        ],
+      };
+      world.routes['streams.example.com/stream/series/tt0903747:2:1.json'] = {
+        'streams': [
+          {
+            'name': 'Streams uno',
+            'title': 'Episodio 4',
+            'url': 'http://media.example.com/e4.mkv',
+            'behaviorHints': {'bingeGroup': 'uno-1080'},
+          },
+        ],
+      };
+      final engine = FakePlaybackEngine(
+        mediaDuration: const Duration(minutes: 10),
+      );
+      await openStreams(
+        tester,
+        StreamsArgs(meta: meta, video: meta.videos[2]),
+        addons: const [streamsAddonUrl],
+        engine: engine,
+        autoSelectSource: false,
+      );
+      await tester.tap(find.text('Episodio 3'));
+      await pumpIo(tester, ticks: 4);
+      engine.tick(const Duration(minutes: 11));
+      await tester.pump();
+      await tester.pump();
+      await tester.tap(find.text('Ver siguiente episodio'));
+      await pumpIo(tester, ticks: 6);
+
       expect(find.byType(PlayerScreen), findsNothing);
       expect(find.byType(StreamsScreen), findsOneWidget);
       expect(find.text('T2 E1 · Episodio 2x1'), findsOneWidget);
-      expect(find.text('Episodio 4'), findsOneWidget);
       expect(find.text('Igual que el anterior'), findsOneWidget);
-
-      await tester.tap(find.byType(BackButton));
-      await pumpIo(tester, ticks: 6);
-      expect(find.byType(StreamsScreen), findsNothing);
-      expect(find.byType(NavigationRail), findsOneWidget);
     },
   );
 

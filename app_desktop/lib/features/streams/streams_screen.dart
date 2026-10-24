@@ -15,8 +15,11 @@ import '../../shared/media_labels.dart';
 import '../../shared/skeleton.dart';
 import '../../shared/state_views.dart';
 import '../../shared/urls.dart';
+import '../../data/providers.dart';
+import '../../shared/stream_labels.dart';
+import '../player/play_args.dart';
 import '../player/play_item.dart';
-import '../player/player_route.dart';
+import '../player/source_candidates.dart';
 import 'stream_info.dart';
 import 'streams_args.dart';
 import 'streams_order.dart';
@@ -151,6 +154,11 @@ class _Groups extends ConsumerWidget {
     final theme = Theme.of(context);
     final waiting = state.groups.where((g) => g.loading).length;
     final groups = orderGroups(state.groups, args.preferAddonUrl);
+    // El orden del ranking (el mismo que usa la elección automática).
+    final ranked = rankCandidates(
+      state.groups,
+      quality: ref.watch(appSettingsProvider.select((s) => s.quality)),
+    );
     return _Centered(
       child: ListView(
         children: [
@@ -167,7 +175,8 @@ class _Groups extends ConsumerWidget {
               ),
             ),
           ),
-          for (final group in groups) _GroupSection(args: args, group: group),
+          for (final group in groups)
+            _GroupSection(args: args, group: group, ranked: ranked),
         ],
       ),
     );
@@ -175,10 +184,17 @@ class _Groups extends ConsumerWidget {
 }
 
 class _GroupSection extends ConsumerWidget {
-  const _GroupSection({required this.args, required this.group});
+  const _GroupSection({
+    required this.args,
+    required this.group,
+    required this.ranked,
+  });
 
   final StreamsArgs args;
   final StreamGroup group;
+
+  /// Todos los streams reproducibles, del mejor al peor.
+  final List<SourceCandidate> ranked;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -191,10 +207,10 @@ class _GroupSection extends ConsumerWidget {
     final binge = args.preferBingeGroup;
     final streams = switch (result) {
       AddonSuccess(:final value) when samePrevious => orderStreams(
-        value,
+        _byRank(value, ranked),
         binge,
       ),
-      AddonSuccess(:final value) => value,
+      AddonSuccess(:final value) => _byRank(value, ranked),
       _ => const <AddonStream>[],
     };
     final recommended = samePrevious && result is AddonSuccess
@@ -262,6 +278,7 @@ class _GroupSection extends ConsumerWidget {
                   args: args,
                   group: group,
                   stream: stream,
+                  ranked: ranked,
                   recommended: identical(stream, recommended),
                   // «Igual que el anterior» solo si coincide el bingeGroup.
                   sameBingeGroup:
@@ -274,11 +291,33 @@ class _GroupSection extends ConsumerWidget {
   }
 }
 
+/// Los streams de un grupo en el orden del ranking; los que no se pueden
+/// reproducir quedan al final, como vinieron.
+List<AddonStream> _byRank(
+  List<AddonStream> streams,
+  List<SourceCandidate> ranked,
+) {
+  final position = Map<AddonStream, int>.identity();
+  for (var i = 0; i < ranked.length; i++) {
+    position[ranked[i].stream] = i;
+  }
+  final playable = [
+    for (final s in streams)
+      if (position.containsKey(s)) s,
+  ]..sort((a, b) => position[a]!.compareTo(position[b]!));
+  return [
+    ...playable,
+    for (final s in streams)
+      if (!position.containsKey(s)) s,
+  ];
+}
+
 class _StreamTile extends ConsumerStatefulWidget {
   const _StreamTile({
     required this.args,
     required this.group,
     required this.stream,
+    required this.ranked,
     required this.recommended,
     required this.sameBingeGroup,
   });
@@ -286,6 +325,7 @@ class _StreamTile extends ConsumerStatefulWidget {
   final StreamsArgs args;
   final StreamGroup group;
   final AddonStream stream;
+  final List<SourceCandidate> ranked;
 
   /// Es el que se sugiere: tiene el foco, así Enter lo reproduce.
   final bool recommended;
@@ -332,19 +372,24 @@ class _StreamTileState extends ConsumerState<_StreamTile> {
   Future<void> _open(BuildContext context, WidgetRef ref) async {
     final block = blockOf(stream);
     if (block == null) {
+      final candidate = widget.ranked.firstWhere(
+        (c) => identical(c.stream, stream),
+        orElse: () => SourceCandidate(
+          stream: stream,
+          addonUrl: group.addon.transportUrl,
+          addonName: group.addon.manifest.name,
+        ),
+      );
       unawaited(
         context.push(
-          Routes.player,
-          extra: PlayerArgs(
-            url: stream.url!,
-            headers: stream.behaviorHints.proxyRequestHeaders,
+          Routes.play,
+          extra: PlayArgs(
+            meta: args.meta,
+            video: args.video,
             resume: args.resume,
-            item: PlayItem(
-              meta: args.meta,
-              video: args.video,
-              stream: stream,
-              addonUrl: group.addon.transportUrl,
-            ),
+            chosen: candidate,
+            candidates: widget.ranked,
+            fromStreams: true,
           ),
         ),
       );
@@ -368,6 +413,10 @@ class _StreamTileState extends ConsumerState<_StreamTile> {
     final scheme = theme.colorScheme;
     final block = blockOf(stream);
     final chips = detectStreamChips(stream);
+    final signals = StreamSignals.of(stream);
+    final isBest =
+        widget.ranked.isNotEmpty &&
+        identical(widget.ranked.first.stream, stream);
     final body = stream.description ?? stream.title;
     final canOpen =
         block == null ||
@@ -424,7 +473,10 @@ class _StreamTileState extends ConsumerState<_StreamTile> {
                           overflow: TextOverflow.ellipsis,
                           style: theme.textTheme.bodyMedium,
                         ),
-                      if (chips.isNotEmpty || recommended) ...[
+                      if (chips.isNotEmpty ||
+                          recommended ||
+                          isBest ||
+                          (block == null && signals.cached != null)) ...[
                         if (body != null) const SizedBox(height: Spacing.sm),
                         Wrap(
                           spacing: Spacing.sm,
@@ -437,6 +489,19 @@ class _StreamTileState extends ConsumerState<_StreamTile> {
                                     : 'Del mismo addon',
                                 icon: Icons.star_outline,
                                 highlighted: true,
+                              ),
+                            if (isBest)
+                              const _Chip(
+                                label: 'Mejor fuente',
+                                icon: Icons.thumb_up_alt_outlined,
+                                highlighted: true,
+                              ),
+                            if (signals.cached == true)
+                              const _Chip(label: '⚡ Cacheado'),
+                            if (signals.cached == false)
+                              const Tooltip(
+                                message: uncachedTooltip,
+                                child: _Chip(label: uncachedChip),
                               ),
                             for (final chip in chips) _Chip(label: chip),
                           ],

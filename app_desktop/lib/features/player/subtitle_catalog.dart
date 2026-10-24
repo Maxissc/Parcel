@@ -73,13 +73,15 @@ String? alignmentLabel(SubtitleAlignment? alignment) => switch (alignment) {
 /// elegir el automático.
 class SubtitleCatalog extends ChangeNotifier {
   SubtitleCatalog({
-    required this._fetcher,
+    this._fetcher,
     this.priority = SubtitleLanguage.defaultPriority,
     this.analyzePerLanguage = 8,
     this.concurrency = 4,
   });
 
-  final SubtitleFetcher _fetcher;
+  /// Con `null` no se baja nada: solo se ordenan y eligen las pistas del
+  /// archivo.
+  final SubtitleFetcher? _fetcher;
   final List<SubtitleLanguage> priority;
 
   /// Cuántos de cada idioma de [priority] se bajan para analizarlos.
@@ -168,7 +170,12 @@ class SubtitleCatalog extends ChangeNotifier {
 
   Future<void> _fetchCues(SubtitleEntry entry) async {
     try {
-      final cues = await _fetcher.fetchCues(entry.subtitle.url);
+      final fetcher = _fetcher;
+      if (fetcher == null) {
+        entry.analysisFailed = true;
+        return;
+      }
+      final cues = await fetcher.fetchCues(entry.subtitle.url);
       if (cues.isEmpty) {
         entry.analysisFailed = true;
       } else {
@@ -249,10 +256,14 @@ class SubtitleCatalog extends ChangeNotifier {
   /// no, el mejor externo. `null` si no hay nada del idioma.
   SubtitleEntry? pickAutomatic(
     String? preferred,
-    List<SubtitleTrack> embedded,
-  ) {
+    List<SubtitleTrack> embedded, {
+    bool includeExternal = true,
+  }) {
     if (preferred == null) return null;
-    final entries = menuEntries(embedded);
+    final entries = [
+      for (final e in menuEntries(embedded))
+        if (includeExternal || e.isEmbedded) e,
+    ];
     final languages = subtitlePriorityFor(preferred);
     for (final language in languages ?? const <SubtitleLanguage?>[null]) {
       final group = [

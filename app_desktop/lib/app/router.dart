@@ -8,6 +8,8 @@ import '../features/addons/addons_screen.dart';
 import '../features/detail/detail_screen.dart';
 import '../features/home/home_screen.dart';
 import '../features/onboarding/onboarding_screen.dart';
+import '../features/player/play_args.dart';
+import '../features/player/play_route.dart';
 import '../features/player/player_route.dart';
 import '../features/search/search_screen.dart';
 import '../features/settings/settings_screen.dart';
@@ -24,6 +26,7 @@ abstract final class Routes {
   static const settings = '/settings';
   static const onboarding = '/onboarding';
   static const player = '/player';
+  static const play = '/play';
   static const streams = '/streams';
   static const detail = '/detail/:type/:id';
 
@@ -48,11 +51,15 @@ final routerProvider = Provider<GoRouter>((ref) {
       if (location == Routes.player && state.extra is! PlayerArgs) {
         return Routes.home;
       }
+      if (location == Routes.play && state.extra is! PlayArgs) {
+        return Routes.home;
+      }
       if (location == Routes.streams && state.extra is! StreamsArgs) {
         return Routes.home;
       }
       if (location != Routes.onboarding &&
           location != Routes.player &&
+          location != Routes.play &&
           needsOnboarding(ref)) {
         return Routes.onboarding;
       }
@@ -73,6 +80,10 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: Routes.player,
         builder: (context, state) =>
             PlayerRoute(args: state.extra! as PlayerArgs),
+      ),
+      GoRoute(
+        path: Routes.play,
+        builder: (context, state) => PlayRoute(args: state.extra! as PlayArgs),
       ),
       GoRoute(
         path: Routes.detail,

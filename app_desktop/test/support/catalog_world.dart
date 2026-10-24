@@ -199,6 +199,9 @@ class CatalogWorld {
     await gates[key]?.future;
     if (failing.contains(key)) return http.Response('error', 500);
     final body = routes[key];
+    if (body is String) {
+      return http.Response(body, 200, headers: {'content-type': 'text/plain'});
+    }
     if (body != null) return jsonResponse(body);
     return http.Response('no encontrado', 404);
   });

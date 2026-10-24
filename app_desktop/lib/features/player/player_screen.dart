@@ -9,6 +9,11 @@ import '../../data/platform.dart';
 import '../../playback/playback_errors.dart';
 import '../../playback/video_surface.dart';
 import 'player_controls.dart';
+import 'player_info.dart';
+import 'source_menu.dart';
+import 'subtitle_catalog.dart';
+import 'subtitle_delay.dart';
+import 'subtitle_sync_overlay.dart';
 import 'track_preferences.dart';
 
 /// El episodio que sigue, para ofrecerlo al terminar el actual.
@@ -32,12 +37,21 @@ class PlayerScreen extends StatefulWidget {
     required this.source,
     this.subtitles = const [],
     this.lateSubtitles,
+    this.catalog,
     this.preferences,
     this.window,
     this.onProgress,
     this.next,
     this.title,
     this.disposeEngine = true,
+    this.info,
+    this.sourceMenu,
+    this.onOpenFailed,
+    this.openTimeout = const Duration(seconds: 20),
+    this.initialSubtitleDelay = Duration.zero,
+    this.onSubtitleDelayChanged,
+    this.onDecision,
+    this.syncTaps = const [],
   });
 
   final PlaybackEngine engine;
@@ -47,9 +61,13 @@ class PlayerScreen extends StatefulWidget {
   /// elegido el último.
   final List<Subtitle> subtitles;
 
-  /// Subtítulos que llegan después (de los addons): se suman cuando el video
-  /// ya está andando.
+  /// Subtítulos que llegan después (de los addons): van al [catalog], que los
+  /// ordena y analiza. No se cargan al video hasta que se eligen.
   final Future<List<Subtitle>>? lateSubtitles;
+
+  /// Orden y análisis de los subtítulos. Sin él solo se usan las pistas del
+  /// archivo.
+  final SubtitleCatalog? catalog;
 
   /// Idiomas preferidos para elegir pistas solo al abrir. Con `null` no se
   /// toca la elección del motor.
@@ -68,6 +86,31 @@ class PlayerScreen extends StatefulWidget {
 
   /// Si es `true`, libera [engine] al cerrar la pantalla.
   final bool disposeEngine;
+
+  /// Fuente y contenido para el panel de datos (tecla I).
+  final PlayerInfo? info;
+
+  /// Menú «Fuente»; con `null` no se muestra.
+  final SourceMenu? sourceMenu;
+
+  /// Si está, un fallo al abrir (error antes del primer cuadro, o más de
+  /// [openTimeout] sin arrancar) se avisa por acá en vez de mostrar la pantalla
+  /// de error, para que quien llama pruebe otra fuente.
+  final VoidCallback? onOpenFailed;
+  final Duration openTimeout;
+
+  /// Retraso de subtítulos con el que arranca (el que el usuario ya fijó para
+  /// este contenido) y aviso cada vez que cambia.
+  final Duration initialSubtitleDelay;
+  final ValueChanged<Duration>? onSubtitleDelayChanged;
+
+  /// Recibe en una línea las decisiones automáticas (pistas elegidas...). Sin
+  /// URLs.
+  final ValueChanged<String>? onDecision;
+
+  /// Marcas que se aplican solas en el asistente de sincronización (solo para
+  /// el diagnóstico).
+  final List<Duration> syncTaps;
 
   /// Segundos sin mover el mouse hasta que se ocultan los controles.
   static const Duration hideAfter = Duration(seconds: 3);
@@ -90,11 +133,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
   static const _subtitleDelay = Duration(seconds: 2);
 
   final FocusNode _focus = FocusNode(debugLabel: 'player');
+  late final SubtitleCatalog _catalog;
   Timer? _hideTimer;
   Timer? _osdTimer;
   Timer? _progressTimer;
   Timer? _tapTimer;
+  Timer? _openTimer;
   StreamSubscription<PlaybackState>? _stateSub;
+  StreamSubscription<PlaybackStats>? _statsSub;
+  PlaybackStats _stats = PlaybackStats.empty;
   bool _controlsVisible = true;
   bool _menuOpen = false;
   bool _fullScreen = false;
@@ -103,6 +150,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
   bool _nextDismissed = false;
   bool _userPickedAudio = false;
   bool _userPickedSubtitle = false;
+  bool _started = false;
+  bool _failedOver = false;
+  bool _infoOpen = false;
+  bool _syncOpen = false;
+  final List<Duration> _syncMarks = [];
+  final Map<String, SubtitleTrack> _loadedExternal = {};
+  late Duration _delay = widget.initialSubtitleDelay;
   double? _dragValue;
   double _volumeBeforeMute = 0.5;
   String? _osd;
@@ -112,8 +166,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
   @override
   void initState() {
     super.initState();
+    _catalog = widget.catalog ?? SubtitleCatalog();
+    _catalog.addListener(_onCatalogChanged);
     _scheduleHide();
+    _stats = _engine.stats;
     _stateSub = _engine.stream.listen(_onEngineState);
+    _statsSub = _engine.statsStream.listen((s) {
+      if (mounted) setState(() => _stats = s);
+    });
     if (widget.onProgress != null) {
       _progressTimer = Timer.periodic(
         PlayerScreen.progressEvery,
@@ -131,15 +191,35 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _osdTimer?.cancel();
     _progressTimer?.cancel();
     _tapTimer?.cancel();
+    _openTimer?.cancel();
     unawaited(_stateSub?.cancel());
+    unawaited(_statsSub?.cancel());
+    _catalog.removeListener(_onCatalogChanged);
+    if (widget.catalog == null) _catalog.dispose();
     _focus.dispose();
     if (widget.disposeEngine) unawaited(_engine.dispose());
     super.dispose();
   }
 
+  void _onCatalogChanged() {
+    if (mounted) setState(() {});
+  }
+
+  void _decide(String message) => widget.onDecision?.call(message);
+
   Future<void> _start(PlaybackSource source) async {
+    _started = false;
+    _openTimer?.cancel();
+    if (widget.onOpenFailed != null) {
+      _openTimer = Timer(widget.openTimeout, () {
+        if (!_started) {
+          _failOver('no arrancó en ${widget.openTimeout.inSeconds} s');
+        }
+      });
+    }
     await _engine.open(source);
     if (!mounted || _engine.state.error != null) return;
+    if (_delay != Duration.zero) await _engine.setSubtitleDelay(_delay);
     for (final s in widget.subtitles) {
       if (!mounted) return;
       await _engine.addExternalSubtitle(
@@ -149,7 +229,18 @@ class _PlayerScreenState extends State<PlayerScreen> {
       );
     }
     await _applyPreferences();
-    await _addLateSubtitles();
+    await _chooseAutomaticSubtitle();
+  }
+
+  /// La fuente no anduvo: se avisa una sola vez a quien eligió la fuente.
+  void _failOver(String reason) {
+    if (_failedOver || !mounted) return;
+    final callback = widget.onOpenFailed;
+    if (callback == null) return;
+    _failedOver = true;
+    _openTimer?.cancel();
+    _decide('la fuente no abrió ($reason)');
+    callback();
   }
 
   // --- Pistas ----------------------------------------------------------------
@@ -169,7 +260,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
     }
   }
 
-  /// Elige audio y subtítulos según los idiomas preferidos, una sola vez.
+  /// Elige el audio según el idioma preferido y deja puesto el subtítulo
+  /// embebido que corresponda, una sola vez.
   Future<void> _applyPreferences() async {
     final prefs = widget.preferences;
     if (prefs == null) return;
@@ -181,7 +273,20 @@ class _PlayerScreenState extends State<PlayerScreen> {
         audio != _engine.state.selectedAudio) {
       await _engine.setAudioTrack(audio);
     }
-    await _chooseSubtitle(fallback: _embeddedSelection());
+    _decide(
+      'audio por defecto: ${_engine.state.selectedAudio ?? audio ?? 'ninguno'}'
+      ' (preferencia ${prefs.audioLanguage ?? 'ninguna'}, '
+      'original ${prefs.originalLanguage ?? 'desconocido'})',
+    );
+    final embedded = _catalog.pickAutomatic(
+      prefs.subtitleLanguage,
+      _engine.state.subtitleTracks.where((t) => !t.isExternal).toList(),
+      includeExternal: false,
+    );
+    await _chooseSubtitle(
+      embedded?.embedded ?? _embeddedSelection(),
+      explicit: embedded != null,
+    );
   }
 
   /// La pista de subtítulos elegida si es del archivo; una externa cargada por
@@ -191,14 +296,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
     return selected != null && !selected.isExternal ? selected : null;
   }
 
-  /// Deja puesta la pista del idioma preferido o, si no hay, [fallback]
-  /// (`null` es sin subtítulos). Si el usuario ya eligió una, la respeta.
-  Future<void> _chooseSubtitle({required SubtitleTrack? fallback}) async {
-    final state = _engine.state;
-    final target = _userPickedSubtitle
-        ? fallback
-        : (widget.preferences?.pickSubtitle(state.subtitleTracks) ?? fallback);
-    if (target == state.selectedSubtitle) return;
+  Future<void> _chooseSubtitle(
+    SubtitleTrack? target, {
+    required bool explicit,
+  }) async {
+    if (_userPickedSubtitle && !explicit) return;
+    if (target == _engine.state.selectedSubtitle) return;
     await _engine.setSubtitleTrack(target);
   }
 
@@ -219,34 +322,173 @@ class _PlayerScreenState extends State<PlayerScreen> {
     }
   }
 
-  /// Suma los subtítulos de los addons cuando llegan. Cada pista nueva el
-  /// motor la elige sola, así que después de cada una se vuelve a la elección
-  /// que corresponde.
-  Future<void> _addLateSubtitles() async {
+  /// Cuando llegan y se analizan los subtítulos de los addons, elige el mejor
+  /// del idioma preferido (si el usuario todavía no eligió uno).
+  Future<void> _chooseAutomaticSubtitle() async {
     final late = widget.lateSubtitles;
-    if (late == null) return;
-    final subtitles = await late;
-    if (!mounted || subtitles.isEmpty) return;
-    await _waitForPlayback();
-    if (!mounted) return;
-    final before = _userPickedSubtitle
-        ? _engine.state.selectedSubtitle
-        : _embeddedSelection();
-    for (final s in subtitles) {
+    if (late != null) {
+      final subtitles = await late;
       if (!mounted) return;
-      await _engine.addExternalSubtitle(
-        s.url,
-        title: s.label ?? s.lang,
-        language: s.lang,
-      );
-      if (!mounted) return;
-      await _chooseSubtitle(fallback: before);
+      _catalog.setExternal(subtitles);
     }
+    if (_catalog.externals.isEmpty) {
+      await _maybeRunSyncTaps();
+      return;
+    }
+    // La alineación necesita la duración del video.
+    if (_engine.state.duration <= Duration.zero) {
+      try {
+        await _engine.stream
+            .firstWhere((s) => s.duration > Duration.zero || s.error != null)
+            .timeout(const Duration(seconds: 20));
+      } on TimeoutException {
+        // Sin duración no hay etiquetas: se elige igual.
+      } on StateError {
+        return;
+      }
+    }
+    if (!mounted) return;
+    _catalog.videoDuration = _engine.state.duration;
+    try {
+      await _catalog.analysisDone.timeout(const Duration(seconds: 20));
+    } on TimeoutException {
+      // Se elige con lo que ya se analizó.
+    }
+    if (!mounted) return;
+    final prefs = widget.preferences;
+    if (prefs != null && !_userPickedSubtitle) {
+      final entry = _catalog.pickAutomatic(
+        prefs.subtitleLanguage,
+        _engine.state.subtitleTracks.where((t) => !t.isExternal).toList(),
+      );
+      if (entry != null) {
+        _decide(
+          'subtítulo por defecto: ${entry.label} '
+          '(${entry.external ? 'de un addon' : 'del video'}, '
+          '${_catalog.alignmentOf(entry)?.name ?? 'sin analizar'})',
+        );
+        if (entry.external) {
+          await _waitForPlayback();
+          if (!mounted || _userPickedSubtitle) return;
+        }
+        await _selectEntry(entry);
+      } else {
+        _decide('subtítulo por defecto: ninguno');
+      }
+    }
+    await _maybeRunSyncTaps();
   }
+
+  Future<void> _selectEntry(SubtitleEntry entry) async {
+    final embedded = entry.embedded;
+    if (embedded != null) {
+      await _engine.setSubtitleTrack(embedded);
+      return;
+    }
+    final known = _loadedExternal[entry.id];
+    if (known != null) {
+      await _engine.setSubtitleTrack(known);
+      return;
+    }
+    final before = _engine.state.subtitleTracks.map((t) => t.id).toSet();
+    await _engine.addExternalSubtitle(
+      entry.subtitle.url,
+      title: entry.label,
+      language: entry.subtitle.lang,
+    );
+    final selected = _engine.state.selectedSubtitle;
+    if (selected != null &&
+        selected.isExternal &&
+        !before.contains(selected.id)) {
+      _loadedExternal[entry.id] = selected;
+    }
+    if (_delay != Duration.zero) await _engine.setSubtitleDelay(_delay);
+  }
+
+  SubtitleMenuData? _subtitleMenu(PlaybackState state) {
+    if (widget.catalog == null && widget.lateSubtitles == null) return null;
+    final embedded = state.subtitleTracks.where((t) => !t.isExternal).toList();
+    return SubtitleMenuData(
+      entries: _catalog.menuEntries(embedded),
+      alignmentOf: _catalog.alignmentOf,
+      isSelected: (entry) {
+        final selected = state.selectedSubtitle;
+        if (selected == null) return false;
+        return entry.embedded != null
+            ? entry.embedded == selected
+            : _loadedExternal[entry.id] == selected;
+      },
+    );
+  }
+
+  // --- Retraso y asistente de sincronización -----------------------------------
+
+  void _setDelay(Duration delay, {bool osd = true}) {
+    _delay = delay;
+    unawaited(_engine.setSubtitleDelay(delay));
+    widget.onSubtitleDelayChanged?.call(delay);
+    if (osd) _showOsd('Subtítulos ${formatDelay(delay)}');
+  }
+
+  void _openSync() {
+    setState(() {
+      _syncOpen = true;
+      _syncMarks.clear();
+      _infoOpen = false;
+    });
+    _poke();
+  }
+
+  void _closeSync() {
+    setState(() => _syncOpen = false);
+    _focus.requestFocus();
+  }
+
+  void _addMark() {
+    setState(() => _syncMarks.add(_engine.state.position));
+  }
+
+  Future<void> _applyMatch(SyncMatch match) async {
+    final entry = _catalog.entryFor(match.subtitle);
+    if (entry != null) {
+      _userPickedSubtitle = true;
+      await _selectEntry(entry);
+    }
+    if (!mounted) return;
+    _setDelay(match.suggestedDelay ?? Duration.zero);
+    _closeSync();
+  }
+
+  /// Diagnóstico: aplica las marcas de `PARCEL_DIAG_SYNC_TAPS` y cuenta qué
+  /// quedó.
+  Future<void> _maybeRunSyncTaps() async {
+    if (widget.syncTaps.isEmpty || !mounted) return;
+    final result = SubtitleSyncMatcher.match(
+      candidates: _catalog.syncCandidates(),
+      marks: widget.syncTaps,
+      videoDuration: _engine.state.duration,
+      priority: _catalog.priority,
+    );
+    _decide(
+      'sincronización con ${widget.syncTaps.length} marcas: quedan '
+      '${result.matches.length} de '
+      '${result.matches.length + result.discarded.length} subtítulos'
+      '${result.matches.isEmpty ? '' : '; el mejor: ${_labelOf(result.matches.first.subtitle)}, retraso ${result.matches.first.suggestedDelay == null ? 'sin dato' : formatDelay(result.matches.first.suggestedDelay!)}'}',
+    );
+    if (result.matches.isNotEmpty) await _applyMatch(result.matches.first);
+  }
+
+  String _labelOf(Subtitle subtitle) =>
+      _catalog.entryFor(subtitle)?.label ?? subtitle.lang;
 
   // --- Progreso ----------------------------------------------------------------
 
   void _onEngineState(PlaybackState s) {
+    if (!_started && s.duration > Duration.zero && !s.buffering) {
+      _started = true;
+      _openTimer?.cancel();
+    }
+    if (!_started && s.error != null) _failOver('error al abrir');
     final paused = _wasPlaying && !s.playing;
     final finished = s.completed && !_wasCompleted;
     _wasPlaying = s.playing;
@@ -280,14 +522,25 @@ class _PlayerScreenState extends State<PlayerScreen> {
     final next = !await window.isFullScreen();
     await window.setFullScreen(next);
     if (mounted) setState(() => _fullScreen = next);
+    // Al cambiar de modo la ventana puede quedarse con el foco: se recupera
+    // para que el teclado siga andando.
+    if (mounted) _focus.requestFocus();
   }
 
-  /// Esc: si la ventana está en pantalla completa sale de ella; si no, vuelve.
+  /// Esc: cierra el panel de datos; si no, sale de pantalla completa; si no,
+  /// vuelve.
   Future<void> _escape() async {
+    if (_infoOpen) {
+      setState(() => _infoOpen = false);
+      return;
+    }
     final window = widget.window;
     if (window != null && await window.isFullScreen()) {
       await window.setFullScreen(false);
-      if (mounted) setState(() => _fullScreen = false);
+      if (mounted) {
+        setState(() => _fullScreen = false);
+        _focus.requestFocus();
+      }
       return;
     }
     if (mounted) _back();
@@ -407,6 +660,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
       unawaited(_escape());
     } else if (key == LogicalKeyboardKey.keyF && !isRepeat) {
       unawaited(_toggleFullScreen());
+    } else if (key == LogicalKeyboardKey.keyI && !isRepeat) {
+      setState(() => _infoOpen = !_infoOpen);
+    } else if (key == LogicalKeyboardKey.keyS && !isRepeat) {
+      _openSync();
+    } else if (key == LogicalKeyboardKey.keyG) {
+      _setDelay(_delay - subtitleDelayStep);
+    } else if (key == LogicalKeyboardKey.keyH) {
+      _setDelay(_delay + subtitleDelayStep);
     } else if (key == LogicalKeyboardKey.enter &&
         !isRepeat &&
         _engine.state.completed &&
@@ -463,9 +724,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   Widget _buildBody(BuildContext context, PlaybackState state) {
     final engine = _engine;
-    final hasError = state.error != null;
+    // Con quien prueba otras fuentes, un error antes de arrancar no muestra la
+    // pantalla de error: se está cambiando de fuente.
+    final switching = widget.onOpenFailed != null && !_started;
+    final hasError = state.error != null && !switching;
     final loading =
-        !hasError && (state.buffering || state.duration <= Duration.zero);
+        !hasError &&
+        (state.buffering || state.duration <= Duration.zero || switching);
     final showControls = _controlsVisible && !hasError;
 
     return MouseRegion(
@@ -523,6 +788,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
               duration: const Duration(milliseconds: 200),
               child: PlayerControls(
                 state: state,
+                stats: _stats,
                 title: widget.title,
                 dragValue: _dragValue,
                 onBack: _back,
@@ -543,6 +809,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   _userPickedSubtitle = true;
                   unawaited(_engine.setSubtitleTrack(t));
                 },
+                subtitles: _subtitleMenu(state),
+                onSelectSubtitleEntry: (entry) {
+                  _userPickedSubtitle = true;
+                  unawaited(_selectEntry(entry));
+                },
+                onOpenSync: _catalog.externals.isEmpty ? null : _openSync,
+                sourceMenu: widget.sourceMenu,
+                atmos: widget.info?.atmos ?? false,
+                onToggleInfo: () => setState(() => _infoOpen = !_infoOpen),
                 onMenuOpened: _menuOpened,
                 onMenuClosed: _menuClosed,
                 isFullScreen: _fullScreen,
@@ -552,6 +827,34 @@ class _PlayerScreenState extends State<PlayerScreen> {
               ),
             ),
           ),
+          if (_infoOpen)
+            Positioned(
+              top: 64,
+              right: 0,
+              bottom: 112,
+              child: InfoPanel(
+                stats: _stats,
+                info: widget.info,
+                onClose: () => setState(() => _infoOpen = false),
+              ),
+            ),
+          if (_syncOpen)
+            Positioned(
+              left: Spacing.lg,
+              bottom: 112,
+              child: LayoutBuilder(
+                builder: (context, _) => SubtitleSyncOverlay(
+                  candidates: _catalog.syncCandidates(),
+                  marks: List.unmodifiable(_syncMarks),
+                  videoDuration: state.duration,
+                  priority: _catalog.priority,
+                  labelOf: _labelOf,
+                  onMark: _addMark,
+                  onApply: (m) => unawaited(_applyMatch(m)),
+                  onClose: _closeSync,
+                ),
+              ),
+            ),
           if (state.completed && widget.next != null && !_nextDismissed)
             Positioned(
               right: Spacing.lg,

@@ -73,6 +73,9 @@ Future<void> seedData(
   bool onboardingCompleted = false,
   String? audioLanguage,
   String? subtitleLanguage,
+  bool? autoSelectSource,
+  bool? openFullScreen,
+  String? tmdbApiKey,
   List<PlaybackProgress> progress = const [],
 }) async {
   await tester.runAsync(() async {
@@ -82,14 +85,23 @@ Future<void> seedData(
     }
     if (onboardingCompleted ||
         audioLanguage != null ||
-        subtitleLanguage != null) {
-      await data.settings.save(
-        data.settings.value.copyWith(
-          onboardingCompleted: onboardingCompleted ? true : null,
-          audioLanguage: audioLanguage,
-          subtitleLanguage: subtitleLanguage,
-        ),
+        subtitleLanguage != null ||
+        autoSelectSource != null ||
+        openFullScreen != null ||
+        tmdbApiKey != null) {
+      var next = data.settings.value.copyWith(
+        onboardingCompleted: onboardingCompleted ? true : null,
+        autoSelectSource: autoSelectSource,
+        openFullScreen: openFullScreen,
       );
+      if (audioLanguage != null) {
+        next = next.copyWith(audioLanguage: audioLanguage);
+      }
+      if (subtitleLanguage != null) {
+        next = next.copyWith(subtitleLanguage: subtitleLanguage);
+      }
+      if (tmdbApiKey != null) next = next.copyWith(tmdbApiKey: tmdbApiKey);
+      await data.settings.save(next);
     }
     for (final p in progress) {
       await data.progress.save(p);
@@ -106,6 +118,7 @@ Future<void> pumpApp(
   List<Override> overrides = const [],
   List<Uri>? openedUrls,
   WindowService window = const NoopWindowService(),
+  StreamProber? prober,
 }) async {
   tester.view.physicalSize = const Size(1280, 800);
   tester.view.devicePixelRatio = 1;
@@ -115,7 +128,13 @@ Future<void> pumpApp(
     ProviderScope(
       retry: (_, _) => null,
       overrides: [
-        ...testOverrides(dir, client, openedUrls: openedUrls, window: window),
+        ...testOverrides(
+          dir,
+          client,
+          openedUrls: openedUrls,
+          window: window,
+          prober: prober,
+        ),
         ...overrides,
       ],
       child: const ParcelApp(),

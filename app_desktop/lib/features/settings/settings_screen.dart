@@ -4,11 +4,13 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:parcel_core/parcel_core.dart' show QualityPreference;
 
 import '../../app/app_info.dart';
 import '../../app/router.dart';
 import '../../app/theme.dart';
 import '../../data/app_settings.dart';
+import '../../data/platform.dart';
 import '../../data/providers.dart';
 import '../../shared/page_layout.dart';
 import '../player/player_route.dart';
@@ -28,15 +30,72 @@ class SettingsScreen extends ConsumerWidget {
         padding: const EdgeInsets.only(bottom: Spacing.lg),
         children: [
           _Section(
+            title: 'Reproducción',
+            children: [
+              SwitchListTile(
+                key: const Key('setting-auto-source'),
+                title: const Text('Elegir la fuente automáticamente'),
+                subtitle: const Text(
+                  'Al dar play, Parcel prueba las mejores fuentes y arranca '
+                  'con la que anda. Si la apagás, elegís de una lista.',
+                ),
+                value: settings.autoSelectSource,
+                onChanged: (v) => _saveLanguage(
+                  context,
+                  () => notifier.setAutoSelectSource(v),
+                ),
+              ),
+              ListTile(
+                title: const Text('Calidad preferida'),
+                trailing: DropdownButton<QualityPreference>(
+                  key: const Key('setting-quality'),
+                  value: settings.quality,
+                  underline: const SizedBox.shrink(),
+                  onChanged: (q) {
+                    if (q != null) {
+                      unawaited(
+                        _saveLanguage(context, () => notifier.setQuality(q)),
+                      );
+                    }
+                  },
+                  items: const [
+                    DropdownMenuItem(
+                      value: QualityPreference.p1080,
+                      child: Text('1080p'),
+                    ),
+                    DropdownMenuItem(
+                      value: QualityPreference.p2160,
+                      child: Text('4K'),
+                    ),
+                    DropdownMenuItem(
+                      value: QualityPreference.p720,
+                      child: Text('720p'),
+                    ),
+                  ],
+                ),
+              ),
+              SwitchListTile(
+                key: const Key('setting-fullscreen'),
+                title: const Text('Abrir en pantalla completa'),
+                value: settings.openFullScreen,
+                onChanged: (v) =>
+                    _saveLanguage(context, () => notifier.setOpenFullScreen(v)),
+              ),
+            ],
+          ),
+          const SizedBox(height: Spacing.md),
+          _Section(
             title: 'Idiomas',
             description:
                 'Al abrir un video, el reproductor elige el audio y los '
-                'subtítulos en estos idiomas si los encuentra. Si no hay '
-                'subtítulos en el idioma elegido, quedan apagados.',
+                'subtítulos en estos idiomas si los encuentra. «Original» '
+                'busca el audio en el idioma en que se hizo el contenido. Si '
+                'no hay subtítulos en el idioma elegido, quedan apagados.',
             children: [
               _LanguageTile(
                 fieldKey: const Key('audio-language'),
                 title: 'Idioma preferido del audio',
+                options: audioLanguageOptions,
                 value: settings.audioLanguage,
                 onChanged: (code) => _saveLanguage(
                   context,
@@ -46,10 +105,27 @@ class SettingsScreen extends ConsumerWidget {
               _LanguageTile(
                 fieldKey: const Key('subtitle-language'),
                 title: 'Idioma preferido de los subtítulos',
+                options: subtitleLanguageOptions,
                 value: settings.subtitleLanguage,
                 onChanged: (code) => _saveLanguage(
                   context,
                   () => notifier.setSubtitleLanguage(code),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: Spacing.md),
+          _Section(
+            title: 'Datos del contenido',
+            children: [
+              _TmdbKeyTile(
+                value: settings.tmdbApiKey,
+                onSave: (key) =>
+                    _saveLanguage(context, () => notifier.setTmdbApiKey(key)),
+                onOpenSite: () => unawaited(
+                  ref.read(urlOpenerProvider)(
+                    Uri.parse('https://www.themoviedb.org/settings/api'),
+                  ),
                 ),
               ),
             ],
@@ -244,16 +320,104 @@ class _Section extends StatelessWidget {
   }
 }
 
+/// Campo de la API key de TMDB (opcional). Se muestra enmascarada y se guarda
+/// al salir del campo o con Enter. Vacía, se quita.
+class _TmdbKeyTile extends StatefulWidget {
+  const _TmdbKeyTile({
+    required this.value,
+    required this.onSave,
+    required this.onOpenSite,
+  });
+
+  final String? value;
+  final ValueChanged<String?> onSave;
+  final VoidCallback onOpenSite;
+
+  @override
+  State<_TmdbKeyTile> createState() => _TmdbKeyTileState();
+}
+
+class _TmdbKeyTileState extends State<_TmdbKeyTile> {
+  late final TextEditingController _controller = TextEditingController(
+    text: widget.value ?? '',
+  );
+  final FocusNode _focus = FocusNode();
+
+  @override
+  void initState() {
+    super.initState();
+    _focus.addListener(() {
+      if (!_focus.hasFocus) _save();
+    });
+  }
+
+  @override
+  void dispose() {
+    _focus.dispose();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _save() {
+    final text = _controller.text.trim();
+    if (text == (widget.value ?? '')) return;
+    widget.onSave(text.isEmpty ? null : text);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.all(Spacing.md),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          TextField(
+            key: const Key('setting-tmdb-key'),
+            controller: _controller,
+            focusNode: _focus,
+            obscureText: true,
+            enableSuggestions: false,
+            autocorrect: false,
+            onSubmitted: (_) => _save(),
+            decoration: const InputDecoration(
+              labelText: 'API key de TMDB (opcional)',
+            ),
+          ),
+          const SizedBox(height: Spacing.sm),
+          Text(
+            'Suma fotos del elenco e idioma original. Conseguila gratis en '
+            'themoviedb.org.',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton(
+              key: const Key('setting-tmdb-link'),
+              onPressed: widget.onOpenSite,
+              child: const Text('Abrir themoviedb.org'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _LanguageTile extends StatelessWidget {
   const _LanguageTile({
     required this.fieldKey,
     required this.title,
+    required this.options,
     required this.value,
     required this.onChanged,
   });
 
   final Key fieldKey;
   final String title;
+  final List<({String code, String label})> options;
   final String? value;
   final ValueChanged<String?> onChanged;
 
@@ -261,7 +425,7 @@ class _LanguageTile extends StatelessWidget {
   Widget build(BuildContext context) {
     // Un código guardado que ya no está en la lista se muestra como «sin
     // preferencia» para que el menú no falle.
-    final known = preferredLanguageOptions.any((o) => o.code == value);
+    final known = options.any((o) => o.code == value);
     return ListTile(
       title: Text(title),
       trailing: DropdownButton<String>(
@@ -272,7 +436,7 @@ class _LanguageTile extends StatelessWidget {
             onChanged(code == null || code.isEmpty ? null : code),
         items: [
           const DropdownMenuItem(value: '', child: Text('Sin preferencia')),
-          for (final option in preferredLanguageOptions)
+          for (final option in options)
             DropdownMenuItem(value: option.code, child: Text(option.label)),
         ],
       ),

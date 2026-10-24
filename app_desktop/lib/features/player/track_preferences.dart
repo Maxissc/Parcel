@@ -1,19 +1,37 @@
 import 'package:parcel_core/parcel_core.dart';
 
+import '../../data/app_settings.dart';
 import '../../shared/urls.dart';
 
 /// Idiomas preferidos (los de Ajustes) para elegir pistas al abrir un video.
 /// `null` es «sin preferencia».
 class TrackPreferences {
-  const TrackPreferences({this.audioLanguage, this.subtitleLanguage});
+  const TrackPreferences({
+    this.audioLanguage,
+    this.subtitleLanguage,
+    this.originalLanguage,
+  });
 
+  /// `original` o un código de idioma.
   final String? audioLanguage;
+
+  /// `latam` o un código de idioma.
   final String? subtitleLanguage;
 
-  /// La pista de audio que corresponde al idioma preferido, o `null`.
+  /// Idioma original del contenido (3 letras), si se sabe: es el que busca el
+  /// audio «Original».
+  final String? originalLanguage;
+
+  /// La pista de audio que corresponde al idioma preferido, o `null`. Con
+  /// «Original» busca el audio en el idioma original y, si no lo sabe, deja la
+  /// pista marcada por defecto.
   AudioTrack? pickAudio(List<AudioTrack> tracks) {
     final language = audioLanguage;
-    return language == null ? null : pickPreferredTrack(tracks, [language]);
+    if (language == null) return null;
+    if (language == originalAudioCode) {
+      return pickOriginalAudio(tracks, originalLanguage);
+    }
+    return pickPreferredTrack(tracks, [language]);
   }
 
   /// La pista de subtítulos que corresponde al idioma preferido, o `null`.

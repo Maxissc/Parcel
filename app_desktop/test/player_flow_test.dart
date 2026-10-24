@@ -372,7 +372,7 @@ void main() {
     const hints = {'videoHash': 'abc', 'videoSize': 100, 'filename': 'm.mkv'};
 
     testWidgets(
-      'suma los subtítulos de los addons y elige el del idioma preferido',
+      'baja los subtítulos de los addons sin cargarlos y carga solo el del idioma preferido',
       (tester) async {
         final fake = engine();
         await openPlayer(
@@ -398,10 +398,8 @@ void main() {
           ),
         );
         final externals = fake.state.subtitleTracks.where((t) => t.isExternal);
-        expect(
-          externals.map((t) => t.language),
-          unorderedEquals(['eng', 'spa']),
-        );
+        // Se piden al addon, pero solo se carga al video el que se elige.
+        expect(externals.map((t) => t.language), ['spa']);
         expect(fake.state.selectedSubtitle?.language, 'spa');
         await leavePlayer(tester);
       },
@@ -425,10 +423,7 @@ void main() {
       await tester.pump();
       await pumpIo(tester);
 
-      expect(
-        fake.state.subtitleTracks.where((t) => t.isExternal),
-        hasLength(2),
-      );
+      expect(fake.state.subtitleTracks.where((t) => t.isExternal), isEmpty);
       expect(fake.state.selectedSubtitle, isNull);
       await leavePlayer(tester);
     });
