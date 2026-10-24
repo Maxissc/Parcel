@@ -283,9 +283,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
       _engine.state.subtitleTracks.where((t) => !t.isExternal).toList(),
       includeExternal: false,
     );
-    await _chooseSubtitle(
-      embedded?.embedded ?? _embeddedSelection(),
-      explicit: embedded != null,
+    final embeddedTarget = embedded?.embedded ?? _embeddedSelection();
+    await _chooseSubtitle(embeddedTarget, explicit: embedded != null);
+    _decide(
+      'subtítulo por defecto (del video): '
+      '${embeddedTarget ?? 'ninguno'} '
+      '(preferencia ${prefs.subtitleLanguage ?? 'ninguna'})',
     );
   }
 
@@ -355,6 +358,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
       // Se elige con lo que ya se analizó.
     }
     if (!mounted) return;
+    final likely = _catalog.externals
+        .where((e) => _catalog.alignmentOf(e) == SubtitleAlignment.likely)
+        .length;
+    final analyzed = _catalog.externals.where((e) => e.cues != null).length;
+    _decide(
+      'subtítulos de addons: ${_catalog.externals.length}, '
+      '$analyzed analizados, $likely probablemente sincronizados',
+    );
     final prefs = widget.preferences;
     if (prefs != null && !_userPickedSubtitle) {
       final entry = _catalog.pickAutomatic(

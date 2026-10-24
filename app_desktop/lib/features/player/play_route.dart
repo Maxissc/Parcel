@@ -73,6 +73,9 @@ class _PlayRouteState extends ConsumerState<PlayRoute> {
     unawaited(
       _window.setFullScreen(ref.read(appSettingsProvider).openFullScreen),
     );
+    if (ref.read(diagnosticsConfigProvider)?.cycleFullscreen ?? false) {
+      unawaited(_diagFullscreenCycle());
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) unawaited(_resolveResume());
     });
@@ -115,6 +118,31 @@ class _PlayRouteState extends ConsumerState<PlayRoute> {
     }
     _resume = choice ? ResumeMode.resume : ResumeMode.fromStart;
     _resumeAnswered.complete();
+  }
+
+  /// Diagnóstico: entra y sale de pantalla completa de verdad y cuenta en qué
+  /// estado queda la ventana, también al cerrar el reproductor.
+  Future<void> _diagFullscreenCycle() async {
+    final window = _window;
+    final diag = _diag;
+    Future<void> report(String when) async => diag.log(
+      'pantalla completa $when: ${await window.isFullScreen() ? 'sí' : 'no'}',
+    );
+    Future<void> pause(int ms) =>
+        Future<void>.delayed(Duration(milliseconds: ms));
+    await pause(9000);
+    if (!mounted) return;
+    await report('con el video andando');
+    await window.setFullScreen(false);
+    await pause(1200);
+    await report('después de salir');
+    await window.setFullScreen(true);
+    await pause(1200);
+    await report('después de volver a entrar');
+    if (!mounted) return;
+    _leave();
+    await pause(1500);
+    await report('con el reproductor cerrado');
   }
 
   void _leave() {
@@ -193,9 +221,12 @@ class _PlayRouteState extends ConsumerState<PlayRoute> {
       return;
     }
     _queue = result.$2;
+    // Las que no están ni elegidas ni entre las alternativas fallaron la
+    // prueba (o son las que no se probaron porque ya había una buena).
     _diag.log(
       'autoplay: elegida la fuente de ${result.$1.addonName} '
-      '(${result.$3} pruebas)',
+      '(${result.$3} pruebas, ${ready.length - 1 - _queue.length} '
+      'descartadas por no responder)',
     );
     await _resumeAnswered.future;
     _play(result.$1);

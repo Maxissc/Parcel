@@ -30,6 +30,9 @@ import '../../playback/playback_errors.dart';
 /// - `PARCEL_DIAG_SYNC_TAPS`: segundos separados por coma (por ejemplo
 ///   `12.0,35.5`); con el reproductor andando, marca esas posiciones en el
 ///   asistente de sincronización de subtítulos y deja el resultado en el log.
+/// - `PARCEL_DIAG_CYCLE_FULLSCREEN=1`: con el reproductor de `/play` andando,
+///   sale de pantalla completa, vuelve a entrar y cierra el reproductor, y
+///   anota en el log en qué estado quedó la ventana en cada paso.
 /// - `PARCEL_DIAG_MIN_PROBE_BYTES`: tamaño mínimo con el que la prueba de
 ///   fuentes acepta un video (por defecto 20 MB; una muestra chica necesita 0).
 class DiagnosticsConfig {
@@ -46,6 +49,7 @@ class DiagnosticsConfig {
     this.autoplay = false,
     this.syncTaps = const [],
     this.probeMinBytes,
+    this.cycleFullscreen = false,
   });
 
   final String? url;
@@ -70,6 +74,7 @@ class DiagnosticsConfig {
 
   /// Tamaño mínimo de la prueba de fuentes; `null` es el normal.
   final int? probeMinBytes;
+  final bool cycleFullscreen;
 
   /// `null` si no es debug o no está `PARCEL_DIAG`.
   static DiagnosticsConfig? fromEnvironment([Map<String, String>? env]) {
@@ -95,6 +100,7 @@ class DiagnosticsConfig {
             Duration(milliseconds: (seconds * 1000).round()),
       ],
       probeMinBytes: int.tryParse(e['PARCEL_DIAG_MIN_PROBE_BYTES'] ?? ''),
+      cycleFullscreen: e['PARCEL_DIAG_CYCLE_FULLSCREEN'] == '1',
     );
   }
 }
