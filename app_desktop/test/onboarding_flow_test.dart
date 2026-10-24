@@ -301,6 +301,24 @@ void main() {
     expect(find.byKey(const Key('retry-failed')), findsOneWidget);
   });
 
+  testWidgets('si no se puede guardar que terminó, «Ir al inicio» avisa', (
+    tester,
+  ) async {
+    await pumpApp(tester, dir, mockWorld(defaultRoutes()));
+    await _tap(tester, find.byKey(const Key('use-defaults')));
+    await pumpUntil(tester, find.byKey(const Key('go-home')));
+    // Un directorio donde va el archivo temporal hace fallar la escritura.
+    Directory('${dir.path}/settings.json.tmp').createSync();
+
+    await _tap(tester, find.byKey(const Key('go-home')));
+    await pumpUntil(
+      tester,
+      find.text('No se pudo guardar que terminaste. Probá de nuevo.'),
+    );
+
+    expect(find.byKey(const Key('go-home')), findsOneWidget);
+  });
+
   testWidgets('Esc durante el login de Nuvio también cancela', (tester) async {
     final calls = AccountCalls();
     final gate = Completer<void>();

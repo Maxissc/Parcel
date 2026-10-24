@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 
 import '../app/theme.dart';
 
+/// Qué parte del ancho pueden ocupar, como mucho, las acciones del encabezado.
+const double _actionsShare = 0.65;
+
 /// Estructura común de una pantalla: título, subtítulo, acciones arriba a la
 /// derecha y contenido centrado con ancho máximo.
 class PageLayout extends StatelessWidget {
@@ -35,40 +38,53 @@ class PageLayout extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Semantics(
-                          header: true,
-                          child: Text(
-                            title,
-                            style: theme.textTheme.headlineMedium,
-                          ),
-                        ),
-                        if (subtitle != null)
-                          Padding(
-                            padding: const EdgeInsets.only(top: Spacing.xs),
-                            child: Text(
-                              subtitle!,
-                              style: theme.textTheme.bodyMedium?.copyWith(
-                                color: theme.colorScheme.onSurfaceVariant,
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final width = constraints.maxWidth;
+                  return Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Semantics(
+                              header: true,
+                              child: Text(
+                                title,
+                                style: theme.textTheme.headlineMedium,
                               ),
                             ),
+                            if (subtitle != null)
+                              Padding(
+                                padding: const EdgeInsets.only(top: Spacing.xs),
+                                child: Text(
+                                  subtitle!,
+                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                    color: theme.colorScheme.onSurfaceVariant,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                      if (actions.isNotEmpty)
+                        // Las acciones no pueden comerse todo el ancho: si no
+                        // entran, bajan de renglón y el título conserva su lugar.
+                        ConstrainedBox(
+                          constraints: BoxConstraints(
+                            maxWidth: _actionsShare * width,
                           ),
-                      ],
-                    ),
-                  ),
-                  if (actions.isNotEmpty)
-                    Wrap(
-                      spacing: Spacing.sm,
-                      runSpacing: Spacing.sm,
-                      children: actions,
-                    ),
-                ],
+                          child: Wrap(
+                            alignment: WrapAlignment.end,
+                            spacing: Spacing.sm,
+                            runSpacing: Spacing.sm,
+                            children: actions,
+                          ),
+                        ),
+                    ],
+                  );
+                },
               ),
               const SizedBox(height: Spacing.lg),
               Expanded(child: child),

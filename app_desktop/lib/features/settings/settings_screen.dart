@@ -29,19 +29,28 @@ class SettingsScreen extends ConsumerWidget {
         children: [
           _Section(
             title: 'Idiomas',
-            description: 'El reproductor elige solas las pistas que coinciden con estos idiomas.',
+            description:
+                'Al abrir un video, el reproductor elige el audio y los '
+                'subtítulos en estos idiomas si los encuentra. Si no hay '
+                'subtítulos en el idioma elegido, quedan apagados.',
             children: [
               _LanguageTile(
                 fieldKey: const Key('audio-language'),
                 title: 'Idioma preferido del audio',
                 value: settings.audioLanguage,
-                onChanged: notifier.setAudioLanguage,
+                onChanged: (code) => _saveLanguage(
+                  context,
+                  () => notifier.setAudioLanguage(code),
+                ),
               ),
               _LanguageTile(
                 fieldKey: const Key('subtitle-language'),
                 title: 'Idioma preferido de los subtítulos',
                 value: settings.subtitleLanguage,
-                onChanged: notifier.setSubtitleLanguage,
+                onChanged: (code) => _saveLanguage(
+                  context,
+                  () => notifier.setSubtitleLanguage(code),
+                ),
               ),
             ],
           ),
@@ -119,6 +128,22 @@ class SettingsScreen extends ConsumerWidget {
     );
   }
 
+  Future<void> _saveLanguage(
+    BuildContext context,
+    Future<void> Function() save,
+  ) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await save();
+    } on Object {
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text('No se pudo guardar el cambio. Probá de nuevo.'),
+        ),
+      );
+    }
+  }
+
   Future<void> _tryPlayer(BuildContext context) async {
     final request = await showTryPlayerDialog(context);
     if (request == null || !context.mounted) return;
@@ -160,8 +185,17 @@ class SettingsScreen extends ConsumerWidget {
         ],
       ),
     );
-    if (confirmed != true) return;
-    await ref.read(dataResetProvider).wipe();
+    if (confirmed != true || !context.mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await ref.read(dataResetProvider).wipe();
+    } on Object {
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text('No se pudieron borrar los datos. Probá de nuevo.'),
+        ),
+      );
+    }
   }
 }
 

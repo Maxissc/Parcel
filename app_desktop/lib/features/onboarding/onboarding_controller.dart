@@ -199,11 +199,7 @@ class OnboardingController extends Notifier<OnboardingState> {
   /// sesión. Lanza [AccountException] si falla.
   Future<void> fetchStremioWithAuthKey(String authKey) {
     final fetch = ++_fetch;
-    return _loadStremio(
-      ref.read(stremioAccountClientProvider),
-      authKey,
-      fetch,
-    );
+    return _loadStremio(ref.read(stremioAccountClientProvider), authKey, fetch);
   }
 
   Future<void> _loadStremio(

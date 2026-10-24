@@ -4,16 +4,36 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:parcel_core/parcel_core.dart';
+import 'package:parcel_desktop/app/app_info.dart';
 import 'package:parcel_desktop/data/platform.dart';
+import 'package:parcel_desktop/data/providers.dart';
 
 import 'support/pump.dart';
 import 'support/test_env.dart';
+
+class _FailingReset extends DataReset {
+  _FailingReset(super.ref);
+
+  @override
+  Future<void> wipe() =>
+      Future.error(const FileSystemException('sin permiso', 'C:/secreto'));
+}
 
 void main() {
   late Directory dir;
 
   setUp(() => dir = makeTempDir());
   tearDown(() => dir.deleteSync(recursive: true));
+
+  test('la versión que se muestra es la de pubspec.yaml', () {
+    final pubspec = File('pubspec.yaml').readAsStringSync();
+    final version = RegExp(
+      r'^version:\s*([^\s+]+)',
+      multiLine: true,
+    ).firstMatch(pubspec)?.group(1);
+    expect(version, isNotNull);
+    expect(appVersion, version);
+  });
 
   testWidgets('el primer arranque, sin addons, abre el asistente', (
     tester,
@@ -123,6 +143,67 @@ void main() {
       final saved = File('${dir.path}/settings.json').readAsStringSync();
       expect(saved, contains('"audioLanguage":"por"'));
       expect(saved, contains('"subtitleLanguage":"spa"'));
+    });
+
+    testWidgets(
+      'si no se puede guardar el idioma avisa y lo deja como estaba',
+      (tester) async {
+        await openSettings(tester);
+        // Un directorio donde va el archivo temporal hace fallar la escritura.
+        Directory('${dir.path}/settings.json.tmp').createSync();
+
+        await tester.tap(find.byKey(const Key('audio-language')));
+        await tester.pump(const Duration(milliseconds: 300));
+        await tester.tap(find.text('Portugués').last);
+        await pumpUntil(
+          tester,
+          find.text('No se pudo guardar el cambio. Probá de nuevo.'),
+        );
+
+        final dropdown = tester.widget<DropdownButton<String>>(
+          find.byKey(const Key('audio-language')),
+        );
+        expect(dropdown.value, '');
+      },
+    );
+
+    testWidgets('la descripción de idiomas dice qué hace el reproductor', (
+      tester,
+    ) async {
+      await openSettings(tester);
+
+      expect(find.textContaining('si los encuentra'), findsOneWidget);
+      expect(find.textContaining('elige solas'), findsNothing);
+    });
+
+    testWidgets('si no se puede borrar, avisa y no vuelve al asistente', (
+      tester,
+    ) async {
+      final client = mockWorld(defaultRoutes());
+      await seedData(tester, dir, client, urls: [cinemetaUrl]);
+      await pumpApp(
+        tester,
+        dir,
+        client,
+        overrides: [dataResetProvider.overrideWith(_FailingReset.new)],
+      );
+      await tester.tap(
+        find.descendant(
+          of: find.byType(NavigationRail),
+          matching: find.text('Ajustes'),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.scrollUntilVisible(find.text('Borrar todos los datos'), 200);
+      await tester.tap(find.text('Borrar todos los datos'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Borrar todo'));
+      await pumpUntil(
+        tester,
+        find.text('No se pudieron borrar los datos. Probá de nuevo.'),
+      );
+
+      expect(find.byType(NavigationRail), findsOneWidget);
     });
 
     testWidgets(

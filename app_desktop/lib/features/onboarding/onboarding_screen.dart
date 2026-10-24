@@ -57,7 +57,17 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   }
 
   Future<void> _finish() async {
-    await ref.read(onboardingProvider.notifier).finish();
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await ref.read(onboardingProvider.notifier).finish();
+    } on Object {
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text('No se pudo guardar que terminaste. Probá de nuevo.'),
+        ),
+      );
+      return;
+    }
     if (mounted) context.go(Routes.home);
   }
 

@@ -43,12 +43,17 @@ class _ParcelAppState extends ConsumerState<ParcelApp> {
 
   @override
   Widget build(BuildContext context) {
+    // El aviso a la consola va aparte, para que dibujar no tenga efectos.
+    ref.listen(appDataProvider, (_, next) {
+      if (next.hasError) {
+        debugPrint('No se pudieron abrir los datos: ${next.error}');
+      }
+    });
     final data = ref.watch(appDataProvider);
     if (data.isLoading) {
       return _bootApp(const LoadingState(label: 'Abriendo Parcel…'));
     }
     if (data.hasError) {
-      debugPrint('No se pudieron abrir los datos: ${data.error}');
       return _bootApp(
         ErrorState(
           title: 'No pudimos abrir tus datos',

@@ -135,7 +135,8 @@ class _CodeTab extends ConsumerWidget {
       case LinkPhase.fetchFailed:
         return ErrorState(
           title: 'No pudimos traer tus addons',
-          message: '${link.message ?? 'Probá de nuevo.'} Generá un código '
+          message:
+              '${link.message ?? 'Probá de nuevo.'} Generá un código '
               'nuevo para reintentar.',
           onRetry: controller.start,
         );
