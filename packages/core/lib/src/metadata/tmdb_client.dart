@@ -114,7 +114,10 @@ class TmdbClient {
     int limit = 30,
   }) async {
     final kind = type == 'movie' ? 'movie' : 'tv';
-    final json = await _get('/3/$kind/$id/credits', const {});
+    // En series, `aggregate_credits` junta todas las temporadas; el personaje
+    // viene en `roles`.
+    final path = kind == 'tv' ? 'aggregate_credits' : 'credits';
+    final json = await _get('/3/$kind/$id/$path', const {});
     final cast = json['cast'];
     if (cast is! List) {
       throw const TmdbException(
@@ -132,7 +135,7 @@ class TmdbClient {
         asInt(map['order']) ?? i,
         CastMember(
           name: name.trim(),
-          character: asNonEmptyString(map['character']),
+          character: asNonEmptyString(map['character']) ?? _firstRole(map),
           photoUrl: profile == null ? null : '$_imageBase$profile',
         ),
       ));
@@ -216,3 +219,10 @@ class TmdbClient {
 
 final RegExp _imdbId = RegExp(r'^tt\d+$');
 const String _imageBase = 'https://image.tmdb.org/t/p/w185';
+
+/// Personaje de `aggregate_credits` (series): el primero de `roles`.
+String? _firstRole(Map<String, dynamic> member) {
+  final roles = member['roles'];
+  if (roles is! List || roles.isEmpty) return null;
+  return asNonEmptyString(asMap(roles.first)?['character']);
+}
