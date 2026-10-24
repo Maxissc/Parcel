@@ -1,6 +1,7 @@
 // Addon Stremio mínimo SOLO para desarrollo: sirve un catálogo, metas y streams
 // que apuntan a un video local. Uso: dart tool/dev_addon.dart [--port 7000]
 // [--media samples/sample.mkv] y después instalar http://127.0.0.1:7000/manifest.json
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -21,17 +22,22 @@ Future<void> main(List<String> args) async {
   final base = 'http://127.0.0.1:${server.port}';
   stdout.writeln('Addon de desarrollo en $base/manifest.json');
   stdout.writeln('Video: ${media.path}');
+  // Cada pedido en paralelo: el reproductor abre varias conexiones a la vez.
   await for (final request in server) {
+    unawaited(_serve(request, base, media));
+  }
+}
+
+Future<void> _serve(HttpRequest request, String base, File media) async {
+  try {
+    await _handle(request, base, media);
+  } on Object catch (e) {
+    stderr.writeln('Error en ${request.uri.path}: $e');
     try {
-      await _handle(request, base, media);
-    } on Object catch (e) {
-      stderr.writeln('Error en ${request.uri.path}: $e');
-      try {
-        request.response.statusCode = HttpStatus.internalServerError;
-        await request.response.close();
-      } on Object {
-        // La conexión ya se cortó.
-      }
+      request.response.statusCode = HttpStatus.internalServerError;
+      await request.response.close();
+    } on Object {
+      // La conexión ya se cortó.
     }
   }
 }
