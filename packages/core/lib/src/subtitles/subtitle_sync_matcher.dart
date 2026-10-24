@@ -72,7 +72,7 @@ abstract final class SubtitleSyncMatcher {
 
   /// Una marca coincide si el candidato tiene un cue activo en ese instante o
   /// uno que arranca entre `t - before` y `t + after`. Con 1 o 2 marcas tienen
-  /// que coincidir todas; con 3 o más, al menos el 70 %.
+  /// que coincidir todas; con 3 o más, al menos el 60 %.
   ///
   /// El orden es: idioma según [priority], más marcas coincidentes,
   /// alineación con [videoDuration] y, a igualdad, el orden de [candidates].
@@ -94,7 +94,7 @@ abstract final class SubtitleSyncMatcher {
       final p = priority.indexOf(language);
       final keep = needed != null
           ? matched >= needed
-          : matched * 10 >= marks.length * 7;
+          : matched * 10 >= marks.length * 6;
       final alignment = SubtitleAlignment.estimate(
         candidate.cues,
         videoDuration,
