@@ -120,6 +120,39 @@ void main() {
     expect(requested, ['a.example.com']);
   });
 
+  test(
+    'si el disco falla en un addon lo reporta y sigue con el resto',
+    () async {
+      // Una carpeta en el lugar del temporal hace fallar la escritura.
+      final blocker = Directory('${dir.path}/otro.json.tmp');
+      final failing = await AddonRepository.open(
+        client: AddonClient(
+          MockClient((req) async {
+            if (req.url.host == 'a.example.com') {
+              blocker.createSync();
+            } else if (blocker.existsSync()) {
+              blocker.deleteSync();
+            }
+            return _json(
+              _manifestJson('test.${req.url.host.split('.').first}'),
+            );
+          }),
+        ),
+        filePath: '${dir.path}/otro.json',
+      );
+      final svc = MigrationService(failing);
+      final plan = pasted(['a.example.com', 'b.example.com']);
+
+      final report = await svc.apply(plan, plan.candidates);
+      await failing.dispose();
+
+      expect(report.items.first.outcome, MigrationOutcome.failed);
+      expect(report.items.first.message, 'No se pudo guardar en disco.');
+      expect(report.items.last.outcome, MigrationOutcome.installed);
+      expect(failing.addons.map((a) => a.manifest.id), ['test.b']);
+    },
+  );
+
   test('sigue ante fallas y cuenta cada resultado', () async {
     final plan = pasted([
       'a.example.com',

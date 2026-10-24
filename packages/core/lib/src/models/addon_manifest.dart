@@ -99,8 +99,37 @@ class AddonCatalog {
       type: type,
       id: id,
       name: asNonEmptyString(json['name']) ?? id,
-      extra: parseList(json['extra'], CatalogExtra.fromJson),
+      extra: _withLegacyExtras(json),
     );
+  }
+
+  /// `extra` más el formato viejo del protocolo: `extraSupported` (nombres que
+  /// acepta) y `extraRequired` (nombres obligatorios), listas de strings.
+  static List<CatalogExtra> _withLegacyExtras(Map<String, dynamic> json) {
+    final extras = parseList(json['extra'], CatalogExtra.fromJson);
+    final supported = asStringList(json['extraSupported']) ?? const [];
+    final required = (asStringList(json['extraRequired']) ?? const [])
+        .where((n) => n.isNotEmpty)
+        .toList();
+    if (supported.isEmpty && required.isEmpty) return extras;
+    final result = <CatalogExtra>[...extras];
+    for (final name in [...required, ...supported]) {
+      if (name.isEmpty) continue;
+      final isRequired = required.contains(name);
+      final index = result.indexWhere((e) => e.name == name);
+      if (index < 0) {
+        result.add(CatalogExtra(name: name, isRequired: isRequired));
+      } else if (isRequired && !result[index].isRequired) {
+        final old = result[index];
+        result[index] = CatalogExtra(
+          name: old.name,
+          isRequired: true,
+          options: old.options,
+          optionsLimit: old.optionsLimit,
+        );
+      }
+    }
+    return result;
   }
 }
 

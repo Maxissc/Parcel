@@ -145,6 +145,18 @@ class AddonAggregator {
           url: addon.transportUrl,
         ),
       );
+    } catch (_) {
+      // Cualquier otra cosa (un TypeError al leer una respuesta rara, por
+      // ejemplo) es culpa de ese addon: no tumba a los demás. El texto del
+      // error no se copia porque puede traer la URL.
+      return AddonFailure(
+        addon,
+        AddonException(
+          AddonFailureReason.parse,
+          'Respuesta inesperada del addon',
+          url: addon.transportUrl,
+        ),
+      );
     }
   }
 }

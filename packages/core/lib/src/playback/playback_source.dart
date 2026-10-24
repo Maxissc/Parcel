@@ -1,3 +1,5 @@
+import '../protocol/redact.dart';
+
 /// Qué abrir en el reproductor: una URL, con headers y posición inicial.
 class PlaybackSource {
   /// Lanza [ArgumentError] si [url] está vacía.
@@ -21,5 +23,5 @@ class PlaybackSource {
   final Duration startPosition;
 
   @override
-  String toString() => 'PlaybackSource($url)';
+  String toString() => 'PlaybackSource(${redactAddonUrl(url)})';
 }

@@ -45,19 +45,21 @@ class ProgressRepository {
 
   /// Lo que se está viendo, del más reciente al más viejo.
   ///
-  /// Toma el último video visto de cada meta (el último episodio de una serie)
-  /// y se queda con los que están en curso (3 % a 92 % visto). Si el último
-  /// episodio de una serie ya terminó, la serie no aparece.
+  /// Primero filtra los videos en curso (3 % a 92 % visto) y después toma el
+  /// más reciente de cada meta. Así, ver el episodio 1 al 50 % y abrir el 2
+  /// y cerrarlo al 1 % deja la serie con el episodio 1. Si ningún video de la
+  /// serie está en curso, no aparece.
   List<PlaybackProgress> inProgress() {
     final latest = <(String, String), PlaybackProgress>{};
     for (final p in _items.values) {
+      if (!p.isInProgress) continue;
       final key = (p.type, p.metaId);
       final current = latest[key];
       if (current == null || p.updatedAt.isAfter(current.updatedAt)) {
         latest[key] = p;
       }
     }
-    return latest.values.where((p) => p.isInProgress).toList()
+    return latest.values.toList()
       ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
   }
 }

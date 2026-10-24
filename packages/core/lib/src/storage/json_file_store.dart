@@ -18,7 +18,9 @@ class JsonFileStore {
     final file = File(path);
     if (!await file.exists()) return null;
     try {
-      final decoded = jsonDecode(await file.readAsString());
+      final decoded = jsonDecode(
+        utf8.decode(await file.readAsBytes(), allowMalformed: false),
+      );
       if (decoded is Map<String, dynamic>) return decoded;
     } on FormatException {
       // cae a conservar el archivo como .bak

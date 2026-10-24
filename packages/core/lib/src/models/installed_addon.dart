@@ -1,4 +1,5 @@
 import '../protocol/manifest_url.dart';
+import '../protocol/redact.dart';
 import 'addon_manifest.dart';
 import 'json_helpers.dart';
 
@@ -10,7 +11,8 @@ class InstalledAddon {
   final String transportUrl;
   final AddonManifest manifest;
 
-  /// Base de las rutas de recursos: [transportUrl] sin `/manifest.json`.
+  /// Base de las rutas de recursos: [transportUrl] sin `/manifest.json` ni
+  /// query (la query va al final de cada recurso).
   String get baseUrl => transportBaseUrl(transportUrl);
 
   /// Lanza [FormatException] si falta `transportUrl` o el manifest es inválido.
@@ -41,5 +43,6 @@ class InstalledAddon {
   int get hashCode => Object.hash(transportUrl, manifest);
 
   @override
-  String toString() => 'InstalledAddon(${manifest.name} $transportUrl)';
+  String toString() =>
+      'InstalledAddon(${redactAddonUrl(transportUrl, name: manifest.name)})';
 }

@@ -112,6 +112,7 @@ class AddonClient {
     Map<String, String> extra,
   ) => buildResourceUrl(
     baseUrl: addon.baseUrl,
+    query: transportQuery(addon.transportUrl),
     resource: resource,
     type: type,
     id: id,

@@ -7,8 +7,19 @@ import '../protocol/manifest_url.dart';
 class PastedAddonsParser {
   const PastedAddonsParser._();
 
+  /// Una coma solo separa si va seguida de espacio, fin de texto o un esquema;
+  /// si no, es parte de la ruta (Torrentio: `providers=yts,eztv`).
   static final RegExp _url = RegExp(
-    r'''(?:https?|stremio)://[^\s,;"'<>()\[\]{}]+''',
+    r'''(?:https?|stremio)://(?:[^\s,;"'<>()\[\]{}]|,(?!\s|$|(?:https?|stremio)://))+''',
+    caseSensitive: false,
+  );
+
+  static final RegExp _wholeUrl = RegExp(
+    r'^(?:https?|stremio)://\S+$',
+    caseSensitive: false,
+  );
+  static final RegExp _commaScheme = RegExp(
+    r',\s*(?:https?|stremio)://',
     caseSensitive: false,
   );
 
@@ -50,7 +61,7 @@ class PastedAddonsParser {
 
   static void _walk(Object? node, List<String> out) {
     if (node is String) {
-      _scan(node, out);
+      _addString(node, out);
     } else if (node is List) {
       for (final item in node) {
         _walk(item, out);
@@ -59,12 +70,22 @@ class PastedAddonsParser {
       final map = asMap(node)!;
       final transport = asNonEmptyString(map['transportUrl']);
       if (transport != null) {
-        _scan(transport, out);
+        _addString(transport, out);
         return;
       }
       for (final value in map.values) {
         _walk(value, out);
       }
+    }
+  }
+
+  /// Un string de JSON que es una sola URL se toma entero, sin la regex.
+  static void _addString(String value, List<String> out) {
+    final text = value.trim();
+    if (_wholeUrl.hasMatch(text) && !_commaScheme.hasMatch(text)) {
+      out.add(text);
+    } else {
+      _scan(value, out);
     }
   }
 

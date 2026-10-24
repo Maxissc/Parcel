@@ -60,5 +60,19 @@ void main() {
         'https://host.com',
       );
     });
+
+    test('con query: la base no la lleva y transportQuery la conserva', () {
+      const url = 'https://host.example/x/manifest.json?token=1';
+      expect(transportBaseUrl(url), 'https://host.example/x');
+      expect(transportQuery(url), 'token=1');
+      expect(transportQuery('https://host.example/x/manifest.json'), '');
+    });
+
+    test('normalizeManifestUrl conserva la query', () {
+      expect(
+        normalizeManifestUrl('https://host.example/x?token=1'),
+        'https://host.example/x/manifest.json?token=1',
+      );
+    });
   });
 }

@@ -14,6 +14,9 @@ enum AddonFailureReason {
 
   /// La respuesta no es JSON o no tiene la forma esperada.
   parse,
+
+  /// No se pudo guardar el cambio en el disco.
+  storage,
 }
 
 /// Falla al hablar con un addon.
@@ -26,7 +29,9 @@ class AddonException implements Exception {
   /// Status HTTP, cuando [reason] es [AddonFailureReason.http].
   final int? statusCode;
 
-  /// URL pedida, si se conoce.
+  /// URL pedida, si se conoce. Es sensible (puede llevar tokens del usuario en
+  /// la ruta o la query): no se muestra, ni se escribe en logs ni en
+  /// [toString]. Para mostrar algo, usar `redactAddonUrl`.
   final String? url;
 
   @override

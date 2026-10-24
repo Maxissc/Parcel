@@ -5,7 +5,7 @@ import 'package:http/http.dart' as http;
 import '../models/json_helpers.dart';
 import 'account_exception.dart';
 import 'account_http.dart';
-import 'redact.dart';
+import '../protocol/redact.dart';
 
 const String _service = 'Nuvio';
 const String _wellKnownUrl = 'https://api.nuvio.tv/.well-known/nuvio';
@@ -196,11 +196,26 @@ class NuvioAccountClient {
           name: asNonEmptyString(row['name']),
           enabled: asBool(row['enabled']) ?? true,
           sortOrder: asInt(row['sort_order']) ?? 0,
-          profileId: asInt(row['profile_id']) ?? 1,
+          profileId: _profileId(row['profile_id']),
         ),
       );
     }
     return List.unmodifiable(addons);
+  }
+
+  /// Entero o string numérico tal cual; sin dato, el perfil 1. Un string que
+  /// no es numérico se mapea a un id negativo estable (FNV-1a del texto), para
+  /// que ese perfil no se mezcle con el 1 ni con otro perfil.
+  static int _profileId(Object? raw) {
+    final id = asInt(raw);
+    if (id != null) return id;
+    final text = raw is String ? raw.trim() : '';
+    if (text.isEmpty) return 1;
+    var hash = 0x811c9dc5;
+    for (final unit in text.codeUnits) {
+      hash = ((hash ^ unit) * 0x01000193) & 0x7fffffff;
+    }
+    return -1 - hash;
   }
 
   /// Cierra la sesión en Nuvio. Nunca lanza: si falla, el token sigue vigente

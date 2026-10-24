@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import '../models/addon_manifest.dart';
 import '../models/installed_addon.dart';
@@ -45,7 +46,10 @@ class InstallReport {
 
 /// Addons instalados, en orden de prioridad, persistidos en un archivo JSON.
 ///
-/// Los errores de disco al guardar salen como excepciones de `dart:io`.
+/// Los errores de disco al guardar salen como excepciones de `dart:io`
+/// ([install], [remove], [reorder]) o, en [installAll], como
+/// [AddonFailureReason.storage]. Si guardar falla, la lista en memoria y el
+/// stream de [changes] quedan como estaban.
 class AddonRepository {
   AddonRepository._(
     this._client,
@@ -60,6 +64,7 @@ class AddonRepository {
   final List<InstalledAddon> _addons;
   final StreamController<List<InstalledAddon>> _changes =
       StreamController.broadcast();
+  Future<void> _lastChange = Future.value();
 
   /// Abre el repositorio leyendo [filePath]. Si el archivo no existe arranca
   /// vacío; si está corrupto arranca vacío y lo deja como `<filePath>.bak`.
@@ -158,40 +163,57 @@ class AddonRepository {
   Future<List<InstallReport>> installAll(List<String> urls) async {
     final reports = <InstallReport>[];
     for (final url in urls) {
-      reports.add(InstallReport(url, await install(url)));
+      InstallResult result;
+      try {
+        result = await install(url);
+      } on FileSystemException {
+        result = InstallFailed(
+          AddonException(AddonFailureReason.storage, _storageMessage, url: url),
+        );
+      }
+      reports.add(InstallReport(url, result));
     }
     return reports;
   }
 
   /// Quita el addon de [transportUrl] (se normaliza). `false` si no estaba.
-  Future<bool> remove(String transportUrl) async {
+  Future<bool> remove(String transportUrl) => _serialized(() async {
     final addon = _findByUrl(_tryNormalize(transportUrl));
     if (addon == null) return false;
-    _addons.remove(addon);
-    await _commit();
+    await _commit([
+      for (final a in _addons)
+        if (a != addon) a,
+    ]);
     return true;
-  }
+  });
 
   /// Mueve el addon de [oldIndex] a [newIndex], que es la posición final que
   /// queda en la lista. Lanza [RangeError] si algún índice está fuera de rango.
-  Future<void> reorder(int oldIndex, int newIndex) async {
+  Future<void> reorder(int oldIndex, int newIndex) => _serialized(() async {
     RangeError.checkValidIndex(oldIndex, _addons);
     RangeError.checkValidIndex(newIndex, _addons);
     if (oldIndex == newIndex) return;
-    _addons.insert(newIndex, _addons.removeAt(oldIndex));
-    await _commit();
-  }
+    final next = [..._addons];
+    next.insert(newIndex, next.removeAt(oldIndex));
+    await _commit(next);
+  });
 
   /// Cierra el stream de [changes].
   Future<void> dispose() => _changes.close();
 
-  Future<InstallResult> _add(InstalledAddon addon) async {
+  Future<InstallResult> _add(InstalledAddon addon) => _serialized(() async {
     final existing =
         _findByUrl(addon.transportUrl) ?? _findById(addon.manifest.id);
     if (existing != null) return AlreadyInstalled(existing);
-    _addons.add(addon);
-    await _commit();
+    await _commit([..._addons, addon]);
     return Installed(addon);
+  });
+
+  /// Corre los cambios de a uno, en el orden en que se piden.
+  Future<T> _serialized<T>(Future<T> Function() change) {
+    final run = _lastChange.then((_) => change());
+    _lastChange = run.then((_) {}, onError: (Object _) {});
+    return run;
   }
 
   InstalledAddon? _findByUrl(String transportUrl) {
@@ -216,12 +238,18 @@ class AddonRepository {
     }
   }
 
-  Future<void> _commit() {
-    final snapshot = addons;
-    if (!_changes.isClosed) _changes.add(snapshot);
-    return _store.write({
+  /// Guarda [next] y recién después lo deja en memoria y avisa. Si guardar
+  /// falla, no cambia nada.
+  Future<void> _commit(List<InstalledAddon> next) async {
+    await _store.write({
       'version': 1,
-      'addons': [for (final a in snapshot) a.toJson()],
+      'addons': [for (final a in next) a.toJson()],
     });
+    _addons
+      ..clear()
+      ..addAll(next);
+    if (!_changes.isClosed) _changes.add(addons);
   }
 }
+
+const String _storageMessage = 'No se pudo guardar en disco';
