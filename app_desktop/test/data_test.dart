@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:parcel_core/parcel_core.dart';
 import 'package:parcel_desktop/data/app_data.dart';
 import 'package:parcel_desktop/data/app_settings.dart';
+import 'package:parcel_desktop/data/progress_providers.dart';
 import 'package:parcel_desktop/data/providers.dart';
 
 import 'support/test_env.dart';
@@ -142,6 +144,54 @@ void main() {
       expect(container.read(appSettingsProvider).onboardingCompleted, isFalse);
     },
   );
+
+  group('escrituras pendientes', () {
+    final progress = PlaybackProgress(
+      type: 'movie',
+      metaId: 'tt0111161',
+      videoId: 'tt0111161',
+      position: const Duration(minutes: 20),
+      duration: const Duration(hours: 2),
+      name: 'Película',
+      updatedAt: DateTime(2026, 10, 24),
+    );
+
+    test('flush espera el progreso, los ajustes y los addons', () async {
+      final container = await openContainer(dir, mockWorld(defaultRoutes()));
+      addTearDown(container.dispose);
+      final data = await container.read(appDataProvider.future);
+
+      unawaited(container.read(progressSaverProvider).save(progress));
+      unawaited(
+        container.read(appSettingsProvider.notifier).setAudioLanguage('spa'),
+      );
+      unawaited(
+        container
+            .read(installedAddonsProvider.notifier)
+            .installUrl(cinemetaUrl),
+      );
+      await data.flush();
+
+      expect(File('${dir.path}/progress.json').existsSync(), isTrue);
+      expect(File('${dir.path}/settings.json').existsSync(), isTrue);
+      expect(savedAddonNames(dir), ['Cinemeta']);
+    });
+
+    test('borrar todos los datos espera lo que se está guardando', () async {
+      final container = await openContainer(dir, mockWorld(defaultRoutes()));
+      addTearDown(container.dispose);
+      await preinstall(container, [cinemetaUrl]);
+
+      unawaited(container.read(progressSaverProvider).save(progress));
+      unawaited(
+        container.read(appSettingsProvider.notifier).completeOnboarding(),
+      );
+      await container.read(dataResetProvider).wipe();
+
+      final left = dir.listSync().map((f) => f.path).toList();
+      expect(left, isEmpty);
+    });
+  });
 
   test(
     'el agregador y el servicio de migración usan el repositorio abierto',

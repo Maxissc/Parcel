@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -63,6 +64,34 @@ class AppData {
       progress: await ProgressRepository.open(filePath: file(_progressFile)),
       settings: await SettingsStore.open(file(_settingsFile)),
     );
+  }
+
+  final Set<Future<void>> _pending = {};
+
+  /// Anota una escritura a disco para que [flush] la espere. Devuelve [write]
+  /// tal cual.
+  Future<T> track<T>(Future<T> write) {
+    final settled = write.then<void>((_) {}, onError: (Object _) {});
+    _pending.add(settled);
+    unawaited(settled.whenComplete(() => _pending.remove(settled)));
+    return write;
+  }
+
+  /// Espera a que terminen las escrituras pendientes (progreso, ajustes y
+  /// addons). Los errores de esas escrituras los ve quien las pidió.
+  Future<void> flush() async {
+    while (_pending.isNotEmpty) {
+      await Future.wait(_pending.toList());
+    }
+    await settings.flush().then<void>((_) {}, onError: (Object _) {});
+    // El repositorio de addons atiende sus cambios en fila: un pedido que no
+    // cambia nada (no hay ningún addon con esa dirección) llega después de los
+    // anteriores.
+    try {
+      await addons.remove('');
+    } on Object {
+      // Nada que esperar si el repositorio ya se cerró.
+    }
   }
 
   /// Borra los archivos de datos (con sus copias `.bak` y temporales). Después

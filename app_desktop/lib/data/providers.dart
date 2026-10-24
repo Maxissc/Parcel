@@ -149,9 +149,20 @@ class AppSettingsNotifier extends Notifier<AppSettings> {
   @override
   AppSettings build() => ref.watch(settingsStoreProvider).value;
 
-  Future<void> _update(AppSettings next) {
+  /// Cambia los ajustes en memoria y los guarda. Si no se puede guardar, vuelve
+  /// a los anteriores (para que la pantalla no muestre algo que no quedó) y
+  /// lanza el error.
+  Future<void> _update(AppSettings next) async {
+    final previous = state;
+    final store = _store;
     state = next;
-    return _store.save(next);
+    try {
+      await store.save(next);
+    } on Object {
+      store.value = previous;
+      if (ref.mounted) state = previous;
+      rethrow;
+    }
   }
 
   Future<void> completeOnboarding() =>
@@ -180,6 +191,9 @@ class DataReset {
   /// pantalla de carga y después el asistente.
   Future<void> wipe() async {
     final data = await _ref.read(appDataProvider.future);
+    // Lo que se está guardando termina antes; si no, podría reaparecer un
+    // archivo recién borrado.
+    await data.flush();
     await data.deleteFiles();
     _ref.invalidate(appDataProvider);
   }

@@ -118,6 +118,9 @@ class SettingsStore {
     return run;
   }
 
+  /// Espera a que terminen las escrituras que ya se pidieron.
+  Future<void> flush() => _lastWrite;
+
   Future<void> _write(String text) async {
     final file = File(path);
     await file.parent.create(recursive: true);

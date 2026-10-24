@@ -46,19 +46,25 @@ final videoProgressProvider = Provider.family<PlaybackProgress?, VideoKey>((
 final progressSaverProvider = Provider<ProgressSaver>((ref) {
   final repository = ref.watch(progressRepositoryProvider);
   final revision = ref.read(progressRevisionProvider.notifier);
-  return ProgressSaver(repository, revision.bump);
+  final data = ref.watch(appDataProvider).requireValue;
+  return ProgressSaver(repository, revision.bump, track: data.track);
 });
 
 class ProgressSaver {
-  ProgressSaver(this._repository, this._changed);
+  ProgressSaver(
+    this._repository,
+    this._changed, {
+    Future<void> Function(Future<void>)? track,
+  }) : _track = track ?? ((write) => write);
 
   final ProgressRepository _repository;
   final void Function() _changed;
+  final Future<void> Function(Future<void> write) _track;
 
   /// Guarda [progress]. La memoria se actualiza al instante; el archivo, un
   /// rato después (el futuro devuelto espera a la escritura).
   Future<void> save(PlaybackProgress progress) {
-    final written = _repository.save(progress);
+    final written = _track(_repository.save(progress));
     // Se avisa fuera del ciclo de vida de los widgets: guardar suele pasar al
     // cerrar el reproductor y Riverpod no deja tocar proveedores ahí.
     scheduleMicrotask(_changed);
