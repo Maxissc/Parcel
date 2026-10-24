@@ -20,6 +20,12 @@ abstract final class Routes {
   static const settings = '/settings';
   static const onboarding = '/onboarding';
   static const player = '/player';
+  static const streams = '/streams';
+  static const detail = '/detail/:type/:id';
+
+  /// Dirección del detalle de un contenido.
+  static String detailPath(String type, String id) =>
+      '/detail/${Uri.encodeComponent(type)}/${Uri.encodeComponent(id)}';
 }
 
 /// Si hay que abrir el asistente: sin addons y sin haberlo completado nunca.

@@ -21,10 +21,18 @@ class PlayerControls extends StatelessWidget {
     required this.onSelectSubtitle,
     required this.onMenuOpened,
     required this.onMenuClosed,
+    this.isFullScreen = false,
+    this.onToggleFullScreen,
   });
 
   final PlaybackState state;
   final String? title;
+
+  /// Si la ventana está en pantalla completa (cambia el ícono del botón).
+  final bool isFullScreen;
+
+  /// Alterna la pantalla completa; con `null` no se muestra el botón.
+  final VoidCallback? onToggleFullScreen;
 
   /// Posición (ms) mientras el usuario arrastra la barra; `null` si no arrastra.
   final double? dragValue;
@@ -62,6 +70,8 @@ class PlayerControls extends StatelessWidget {
             onSelectSubtitle: onSelectSubtitle,
             onMenuOpened: onMenuOpened,
             onMenuClosed: onMenuClosed,
+            isFullScreen: isFullScreen,
+            onToggleFullScreen: onToggleFullScreen,
           ),
         ],
       ),
@@ -137,9 +147,13 @@ class _BottomBar extends StatelessWidget {
     required this.onSelectSubtitle,
     required this.onMenuOpened,
     required this.onMenuClosed,
+    required this.isFullScreen,
+    required this.onToggleFullScreen,
   });
 
   final PlaybackState state;
+  final bool isFullScreen;
+  final VoidCallback? onToggleFullScreen;
   final double? dragValue;
   final VoidCallback onPlayOrPause;
   final ValueChanged<double> onSeekChanged;
@@ -241,6 +255,17 @@ class _BottomBar extends StatelessWidget {
                     onOpened: onMenuOpened,
                     onClosed: onMenuClosed,
                   ),
+                  if (onToggleFullScreen != null)
+                    IconButton(
+                      key: const Key('player-fullscreen'),
+                      tooltip: isFullScreen
+                          ? 'Salir de pantalla completa (F)'
+                          : 'Pantalla completa (F)',
+                      icon: Icon(
+                        isFullScreen ? Icons.fullscreen_exit : Icons.fullscreen,
+                      ),
+                      onPressed: onToggleFullScreen,
+                    ),
                 ],
               ),
             ],

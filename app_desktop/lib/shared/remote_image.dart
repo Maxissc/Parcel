@@ -1,12 +1,6 @@
 import 'package:flutter/material.dart';
 
-/// `true` si [url] se puede bajar con la red (http o https).
-bool isHttpUrl(String? url) {
-  final uri = url == null ? null : Uri.tryParse(url);
-  return uri != null &&
-      (uri.scheme == 'http' || uri.scheme == 'https') &&
-      uri.host.isNotEmpty;
-}
+import 'urls.dart';
 
 /// Imagen de la red que llena su espacio: muestra un fondo con un ícono
 /// mientras carga, aparece con un fundido y, si falla, deja el fondo con un

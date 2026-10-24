@@ -4,8 +4,20 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:parcel_core/parcel_core.dart';
 
+import '../../app/theme.dart';
+import '../../data/platform.dart';
 import '../../playback/video_surface.dart';
 import 'player_controls.dart';
+import 'track_preferences.dart';
+
+/// El episodio que sigue, para ofrecerlo al terminar el actual.
+class NextEpisode {
+  const NextEpisode({required this.label, required this.onOpen});
+
+  /// Por ejemplo «T1 E4 · Título».
+  final String label;
+  final void Function(BuildContext context) onOpen;
+}
 
 /// Pantalla del reproductor: video a pantalla completa de la ventana y
 /// controles propios encima.
@@ -18,6 +30,11 @@ class PlayerScreen extends StatefulWidget {
     required this.engine,
     required this.source,
     this.subtitles = const [],
+    this.lateSubtitles,
+    this.preferences,
+    this.window,
+    this.onProgress,
+    this.next,
     this.title,
     this.disposeEngine = true,
   });
@@ -28,6 +45,24 @@ class PlayerScreen extends StatefulWidget {
   /// Subtítulos externos que se cargan al abrir. Si hay más de uno queda
   /// elegido el último.
   final List<Subtitle> subtitles;
+
+  /// Subtítulos que llegan después (de los addons): se suman cuando el video
+  /// ya está andando.
+  final Future<List<Subtitle>>? lateSubtitles;
+
+  /// Idiomas preferidos para elegir pistas solo al abrir. Con `null` no se
+  /// toca la elección del motor.
+  final TrackPreferences? preferences;
+
+  /// Para pantalla completa (tecla F, doble clic, Esc). Con `null` no hay.
+  final WindowService? window;
+
+  /// Se llama con la posición y la duración cada 10 s, al pausar, al terminar
+  /// y al salir. Con `null` no se guarda progreso.
+  final void Function(Duration position, Duration duration)? onProgress;
+
+  /// Si hay, al terminar el video se ofrece pasar al episodio que sigue.
+  final NextEpisode? next;
   final String? title;
 
   /// Si es `true`, libera [engine] al cerrar la pantalla.
@@ -36,6 +71,13 @@ class PlayerScreen extends StatefulWidget {
   /// Segundos sin mover el mouse hasta que se ocultan los controles.
   static const Duration hideAfter = Duration(seconds: 3);
 
+  /// Cada cuánto se guarda el progreso mientras se reproduce.
+  static const Duration progressEvery = Duration(seconds: 10);
+
+  /// Antes de este punto no se guarda progreso: abrir y salir enseguida no
+  /// tiene que pisar lo que ya se había visto.
+  static const Duration minProgress = Duration(seconds: 5);
+
   @override
   State<PlayerScreen> createState() => _PlayerScreenState();
 }
@@ -43,12 +85,22 @@ class PlayerScreen extends StatefulWidget {
 class _PlayerScreenState extends State<PlayerScreen> {
   static const _seekStep = Duration(seconds: 10);
   static const _volumeStep = 0.05;
+  static const _doubleTap = Duration(milliseconds: 300);
 
   final FocusNode _focus = FocusNode(debugLabel: 'player');
   Timer? _hideTimer;
   Timer? _osdTimer;
+  Timer? _progressTimer;
+  Timer? _tapTimer;
+  StreamSubscription<PlaybackState>? _stateSub;
   bool _controlsVisible = true;
   bool _menuOpen = false;
+  bool _fullScreen = false;
+  bool _wasPlaying = false;
+  bool _wasCompleted = false;
+  bool _nextDismissed = false;
+  bool _userPickedAudio = false;
+  bool _userPickedSubtitle = false;
   double? _dragValue;
   double _volumeBeforeMute = 0.5;
   String? _osd;
@@ -59,13 +111,25 @@ class _PlayerScreenState extends State<PlayerScreen> {
   void initState() {
     super.initState();
     _scheduleHide();
+    _stateSub = _engine.stream.listen(_onEngineState);
+    if (widget.onProgress != null) {
+      _progressTimer = Timer.periodic(
+        PlayerScreen.progressEvery,
+        (_) => _reportProgress(onlyIfPlaying: true),
+      );
+    }
+    unawaited(_syncFullScreen());
     unawaited(_start(widget.source));
   }
 
   @override
   void dispose() {
+    _reportProgress();
     _hideTimer?.cancel();
     _osdTimer?.cancel();
+    _progressTimer?.cancel();
+    _tapTimer?.cancel();
+    unawaited(_stateSub?.cancel());
     _focus.dispose();
     if (widget.disposeEngine) unawaited(_engine.dispose());
     super.dispose();
@@ -81,6 +145,147 @@ class _PlayerScreenState extends State<PlayerScreen> {
         title: s.label ?? s.lang,
         language: s.lang,
       );
+    }
+    await _applyPreferences();
+    await _addLateSubtitles();
+  }
+
+  // --- Pistas ----------------------------------------------------------------
+
+  /// Espera a que el motor informe las pistas del archivo (llegan un rato
+  /// después de abrirlo).
+  Future<void> _waitForTracks() async {
+    if (_engine.state.audioTracks.isNotEmpty) return;
+    try {
+      await _engine.stream
+          .firstWhere((s) => s.audioTracks.isNotEmpty || s.error != null)
+          .timeout(const Duration(seconds: 3));
+    } on TimeoutException {
+      // Un video sin audio informable: se sigue con lo que haya.
+    } on StateError {
+      // El motor se cerró.
+    }
+  }
+
+  /// Elige audio y subtítulos según los idiomas preferidos, una sola vez.
+  Future<void> _applyPreferences() async {
+    final prefs = widget.preferences;
+    if (prefs == null) return;
+    await _waitForTracks();
+    if (!mounted) return;
+    final audio = prefs.pickAudio(_engine.state.audioTracks);
+    if (!_userPickedAudio &&
+        audio != null &&
+        audio != _engine.state.selectedAudio) {
+      await _engine.setAudioTrack(audio);
+    }
+    await _chooseSubtitle(fallback: _embeddedSelection());
+  }
+
+  /// La pista de subtítulos elegida si es del archivo; una externa cargada por
+  /// nosotros no cuenta como elección del usuario.
+  SubtitleTrack? _embeddedSelection() {
+    final selected = _engine.state.selectedSubtitle;
+    return selected != null && !selected.isExternal ? selected : null;
+  }
+
+  /// Deja puesta la pista del idioma preferido o, si no hay, [fallback]
+  /// (`null` es sin subtítulos). Si el usuario ya eligió una, la respeta.
+  Future<void> _chooseSubtitle({required SubtitleTrack? fallback}) async {
+    final state = _engine.state;
+    final target = _userPickedSubtitle
+        ? fallback
+        : (widget.preferences?.pickSubtitle(state.subtitleTracks) ?? fallback);
+    if (target == state.selectedSubtitle) return;
+    await _engine.setSubtitleTrack(target);
+  }
+
+  /// Suma los subtítulos de los addons cuando llegan. Cada pista nueva el
+  /// motor la elige sola, así que después de cada una se vuelve a la elección
+  /// que corresponde.
+  Future<void> _addLateSubtitles() async {
+    final late = widget.lateSubtitles;
+    if (late == null) return;
+    final subtitles = await late;
+    if (!mounted || subtitles.isEmpty) return;
+    final before = _userPickedSubtitle
+        ? _engine.state.selectedSubtitle
+        : _embeddedSelection();
+    for (final s in subtitles) {
+      if (!mounted) return;
+      await _engine.addExternalSubtitle(
+        s.url,
+        title: s.label ?? s.lang,
+        language: s.lang,
+      );
+      if (!mounted) return;
+      await _chooseSubtitle(fallback: before);
+    }
+  }
+
+  // --- Progreso ----------------------------------------------------------------
+
+  void _onEngineState(PlaybackState s) {
+    final paused = _wasPlaying && !s.playing;
+    final finished = s.completed && !_wasCompleted;
+    _wasPlaying = s.playing;
+    _wasCompleted = s.completed;
+    if (paused || finished) _reportProgress();
+    if (finished && mounted) setState(() => _nextDismissed = false);
+  }
+
+  void _reportProgress({bool onlyIfPlaying = false}) {
+    final report = widget.onProgress;
+    if (report == null) return;
+    final s = _engine.state;
+    if (onlyIfPlaying && !s.playing) return;
+    if (s.error != null || s.duration <= Duration.zero) return;
+    if (s.position < PlayerScreen.minProgress) return;
+    report(s.position, s.duration);
+  }
+
+  // --- Pantalla completa --------------------------------------------------------
+
+  Future<void> _syncFullScreen() async {
+    final window = widget.window;
+    if (window == null) return;
+    final value = await window.isFullScreen();
+    if (mounted) setState(() => _fullScreen = value);
+  }
+
+  Future<void> _toggleFullScreen() async {
+    final window = widget.window;
+    if (window == null) return;
+    final next = !await window.isFullScreen();
+    await window.setFullScreen(next);
+    if (mounted) setState(() => _fullScreen = next);
+  }
+
+  /// Esc: si la ventana está en pantalla completa sale de ella; si no, vuelve.
+  Future<void> _escape() async {
+    final window = widget.window;
+    if (window != null && await window.isFullScreen()) {
+      await window.setFullScreen(false);
+      if (mounted) setState(() => _fullScreen = false);
+      return;
+    }
+    if (mounted) _back();
+  }
+
+  /// Un clic pausa o reanuda; dos seguidos pasan a pantalla completa (y
+  /// deshacen la pausa del primero).
+  void _onSurfaceTap() {
+    if (widget.window == null) {
+      _playOrPause();
+      return;
+    }
+    if (_tapTimer?.isActive ?? false) {
+      _tapTimer!.cancel();
+      unawaited(_toggleFullScreen());
+      _playOrPause();
+    } else {
+      _playOrPause();
+      _tapTimer = Timer(_doubleTap, () {});
     }
   }
 
@@ -178,7 +383,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
     final key = event.logicalKey;
     final isRepeat = event is KeyRepeatEvent;
     if (key == LogicalKeyboardKey.escape && !isRepeat) {
-      _back();
+      unawaited(_escape());
+    } else if (key == LogicalKeyboardKey.keyF && !isRepeat) {
+      unawaited(_toggleFullScreen());
+    } else if (key == LogicalKeyboardKey.enter &&
+        !isRepeat &&
+        _engine.state.completed &&
+        widget.next != null &&
+        !_nextDismissed) {
+      widget.next!.onOpen(context);
     } else if (key == LogicalKeyboardKey.space && !isRepeat) {
       _playOrPause();
     } else if (key == LogicalKeyboardKey.arrowLeft) {
@@ -245,7 +458,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
           GestureDetector(
             key: const Key('player-surface'),
             behavior: HitTestBehavior.opaque,
-            onTap: hasError ? null : _playOrPause,
+            onTap: hasError ? null : _onSurfaceTap,
             child: engine is VideoSurfaceProvider
                 ? (engine as VideoSurfaceProvider).buildVideoSurface(context)
                 : const ColoredBox(color: Colors.black),
@@ -301,13 +514,32 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 },
                 onVolumeChanged: _changeVolume,
                 onToggleMute: _toggleMute,
-                onSelectAudio: (t) => unawaited(_engine.setAudioTrack(t)),
-                onSelectSubtitle: (t) => unawaited(_engine.setSubtitleTrack(t)),
+                onSelectAudio: (t) {
+                  _userPickedAudio = true;
+                  unawaited(_engine.setAudioTrack(t));
+                },
+                onSelectSubtitle: (t) {
+                  _userPickedSubtitle = true;
+                  unawaited(_engine.setSubtitleTrack(t));
+                },
                 onMenuOpened: _menuOpened,
                 onMenuClosed: _menuClosed,
+                isFullScreen: _fullScreen,
+                onToggleFullScreen: widget.window == null
+                    ? null
+                    : () => unawaited(_toggleFullScreen()),
               ),
             ),
           ),
+          if (state.completed && widget.next != null && !_nextDismissed)
+            Positioned(
+              right: Spacing.lg,
+              bottom: 128,
+              child: _NextEpisodeCard(
+                next: widget.next!,
+                onDismiss: () => setState(() => _nextDismissed = true),
+              ),
+            ),
           if (hasError)
             _ErrorOverlay(
               message: state.error!,
@@ -315,6 +547,72 @@ class _PlayerScreenState extends State<PlayerScreen> {
               onBack: _back,
             ),
         ],
+      ),
+    );
+  }
+}
+
+/// Tarjeta que aparece al terminar un episodio con el que sigue.
+class _NextEpisodeCard extends StatelessWidget {
+  const _NextEpisodeCard({required this.next, required this.onDismiss});
+
+  final NextEpisode next;
+  final VoidCallback onDismiss;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Material(
+      key: const Key('player-next-card'),
+      color: Colors.black.withValues(alpha: 0.85),
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(
+          Spacing.md,
+          Spacing.sm,
+          Spacing.sm,
+          Spacing.md,
+        ),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 360),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Siguiente episodio',
+                      style: theme.textTheme.labelLarge?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Cerrar',
+                    visualDensity: VisualDensity.compact,
+                    icon: const Icon(Icons.close, size: 18),
+                    onPressed: onDismiss,
+                  ),
+                ],
+              ),
+              Text(
+                next.label,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.titleMedium,
+              ),
+              const SizedBox(height: Spacing.md),
+              FilledButton.icon(
+                key: const Key('player-next'),
+                onPressed: () => next.onOpen(context),
+                icon: const Icon(Icons.skip_next),
+                label: const Text('Ver siguiente episodio'),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

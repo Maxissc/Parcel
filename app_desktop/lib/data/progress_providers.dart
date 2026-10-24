@@ -19,7 +19,10 @@ class ProgressRevision extends Notifier<int> {
   @override
   int build() => 0;
 
-  void bump() => state++;
+  void bump() {
+    // El aviso llega en un microtask: la app pudo cerrarse antes.
+    if (ref.mounted) state++;
+  }
 }
 
 /// Lo que se está viendo («Seguir viendo»), del más reciente al más viejo.

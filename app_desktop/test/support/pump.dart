@@ -8,6 +8,7 @@ import 'package:http/http.dart' as http;
 import 'package:parcel_core/parcel_core.dart';
 import 'package:parcel_desktop/app/app.dart';
 import 'package:parcel_desktop/data/app_data.dart';
+import 'package:parcel_desktop/data/platform.dart';
 
 import 'test_env.dart';
 
@@ -48,16 +49,28 @@ Future<void> seedData(
   http.Client client, {
   List<String> urls = const [],
   bool onboardingCompleted = false,
+  String? audioLanguage,
+  String? subtitleLanguage,
+  List<PlaybackProgress> progress = const [],
 }) async {
   await tester.runAsync(() async {
     final data = await AppData.open(dir, client: AddonClient(client));
     for (final url in urls) {
       await data.addons.install(url);
     }
-    if (onboardingCompleted) {
+    if (onboardingCompleted ||
+        audioLanguage != null ||
+        subtitleLanguage != null) {
       await data.settings.save(
-        data.settings.value.copyWith(onboardingCompleted: true),
+        data.settings.value.copyWith(
+          onboardingCompleted: onboardingCompleted ? true : null,
+          audioLanguage: audioLanguage,
+          subtitleLanguage: subtitleLanguage,
+        ),
       );
+    }
+    for (final p in progress) {
+      await data.progress.save(p);
     }
     await data.dispose();
   });
@@ -70,6 +83,7 @@ Future<void> pumpApp(
   http.Client client, {
   List<Override> overrides = const [],
   List<Uri>? openedUrls,
+  WindowService window = const NoopWindowService(),
 }) async {
   tester.view.physicalSize = const Size(1280, 800);
   tester.view.devicePixelRatio = 1;
@@ -79,7 +93,7 @@ Future<void> pumpApp(
     ProviderScope(
       retry: (_, _) => null,
       overrides: [
-        ...testOverrides(dir, client, openedUrls: openedUrls),
+        ...testOverrides(dir, client, openedUrls: openedUrls, window: window),
         ...overrides,
       ],
       child: const ParcelApp(),

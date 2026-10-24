@@ -31,6 +31,12 @@ final urlOpenerProvider = Provider<UrlOpener>(
 abstract class WindowService {
   /// Pantalla completa para el reproductor; `false` la restaura.
   Future<void> setFullScreen(bool fullScreen);
+
+  /// `true` si la ventana está en pantalla completa.
+  Future<bool> isFullScreen();
+
+  /// Título de la ventana (el de la barra y el de la barra de tareas).
+  Future<void> setTitle(String title);
 }
 
 /// No hace nada: es lo que usan los tests.
@@ -39,6 +45,12 @@ class NoopWindowService implements WindowService {
 
   @override
   Future<void> setFullScreen(bool fullScreen) async {}
+
+  @override
+  Future<bool> isFullScreen() async => false;
+
+  @override
+  Future<void> setTitle(String title) async {}
 }
 
 /// Ventana de escritorio, con `window_manager`.
@@ -67,6 +79,12 @@ class DesktopWindowService implements WindowService {
   @override
   Future<void> setFullScreen(bool fullScreen) =>
       windowManager.setFullScreen(fullScreen);
+
+  @override
+  Future<bool> isFullScreen() => windowManager.isFullScreen();
+
+  @override
+  Future<void> setTitle(String title) => windowManager.setTitle(title);
 }
 
 final windowServiceProvider = Provider<WindowService>(

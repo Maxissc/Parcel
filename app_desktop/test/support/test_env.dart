@@ -76,10 +76,11 @@ List<Override> testOverrides(
   Directory dir,
   http.Client client, {
   List<Uri>? openedUrls,
+  WindowService window = const NoopWindowService(),
 }) => [
   dataDirectoryProvider.overrideWith((ref) => dir),
   httpClientProvider.overrideWithValue(client),
-  windowServiceProvider.overrideWithValue(const NoopWindowService()),
+  windowServiceProvider.overrideWithValue(window),
   urlOpenerProvider.overrideWithValue((uri) async {
     openedUrls?.add(uri);
     return true;
