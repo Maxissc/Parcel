@@ -205,6 +205,43 @@ void main() {
       expect(b.extra[1].optionsLimit, 2);
     });
 
+    test('lee el formato viejo extraRequired / extraSupported', () {
+      final m = AddonManifest.fromJson(
+        _manifest(
+          resources: ['catalog'],
+          catalogs: [
+            {
+              'type': 'movie',
+              'id': 'busqueda',
+              'extraRequired': ['search'],
+              'extraSupported': ['search', 'genre'],
+            },
+            {
+              'type': 'movie',
+              'id': 'solo-requerido',
+              'extraRequired': ['search'],
+            },
+            {
+              'type': 'movie',
+              'id': 'mixto',
+              'extra': [
+                {'name': 'genre'},
+              ],
+              'extraSupported': ['genre', 'skip'],
+            },
+          ],
+        ),
+      );
+      final busqueda = m.catalogs[0];
+      expect(busqueda.extra.map((e) => e.name), ['search', 'genre']);
+      expect(busqueda.hasRequiredExtra, isTrue);
+      expect(busqueda.extra[0].isRequired, isTrue);
+      expect(busqueda.extra[1].isRequired, isFalse);
+      expect(m.catalogs[1].hasRequiredExtra, isTrue);
+      expect(m.catalogs[2].extra.map((e) => e.name), ['genre', 'skip']);
+      expect(m.catalogs[2].hasRequiredExtra, isFalse);
+    });
+
     test('rechaza manifests sin id, sin name o sin recursos válidos', () {
       expect(
         () => AddonManifest.fromJson({
