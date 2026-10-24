@@ -42,7 +42,7 @@ class SyncMatch {
 
   @override
   String toString() =>
-      'SyncMatch(${subtitle.id} $matchedMarks/$totalMarks '
+      'SyncMatch(${language.name} $matchedMarks/$totalMarks '
       'delay=$suggestedDelay ${alignment.name})';
 }
 

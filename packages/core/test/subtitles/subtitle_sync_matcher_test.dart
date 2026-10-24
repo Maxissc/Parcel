@@ -307,6 +307,16 @@ void main() {
       expect(result.discarded, isEmpty);
     });
 
+    test('toString no muestra el id ni la URL del subtítulo', () {
+      final result = SubtitleSyncMatcher.match(
+        candidates: [
+          _cand('https://subs.example.com/token-secreto/es.srt', [_cue(100)]),
+        ],
+        marks: [_s(100)],
+      );
+      expect(result.matches.single.toString(), isNot(contains('secreto')));
+    });
+
     test('marcas repetidas cuentan por separado', () {
       final result = SubtitleSyncMatcher.match(
         candidates: [
