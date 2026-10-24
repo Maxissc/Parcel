@@ -35,6 +35,7 @@ export 'src/playback/original_language.dart';
 export 'src/playback/playback_engine.dart';
 export 'src/playback/playback_source.dart';
 export 'src/playback/playback_state.dart';
+export 'src/playback/playback_stats.dart';
 export 'src/playback/playback_track.dart';
 export 'src/playback/playback_utils.dart';
 export 'src/streams/auto_stream_selector.dart';

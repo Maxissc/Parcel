@@ -41,7 +41,11 @@ class MediaKitPlaybackEngine implements PlaybackEngine, VideoSurfaceProvider {
   final StreamController<PlaybackState> _controller =
       StreamController<PlaybackState>.broadcast();
 
+  final StreamController<PlaybackStats> _statsController =
+      StreamController<PlaybackStats>.broadcast();
+
   PlaybackState _state = const PlaybackState();
+  PlaybackStats _stats = PlaybackStats.empty;
   bool _disposed = false;
 
   // Pistas de media_kit por id, para poder elegirlas.
@@ -59,6 +63,12 @@ class MediaKitPlaybackEngine implements PlaybackEngine, VideoSurfaceProvider {
 
   @override
   Stream<PlaybackState> get stream => _controller.stream;
+
+  @override
+  PlaybackStats get stats => _stats;
+
+  @override
+  Stream<PlaybackStats> get statsStream => _statsController.stream;
 
   void _log(String message) => onLog?.call(message);
 
@@ -321,6 +331,15 @@ class MediaKitPlaybackEngine implements PlaybackEngine, VideoSurfaceProvider {
   }
 
   @override
+  Future<void> setSubtitleDelay(Duration delay) async {
+    if (_disposed) return;
+    final platform = _player.platform;
+    if (platform is! mk.NativePlayer) return;
+    final seconds = delay.inMicroseconds / Duration.microsecondsPerSecond;
+    await platform.setProperty('sub-delay', seconds.toStringAsFixed(3));
+  }
+
+  @override
   Widget buildVideoSurface(BuildContext context) => mkv.Video(
     controller: _video,
     controls: mkv.NoVideoControls,
@@ -339,5 +358,6 @@ class MediaKitPlaybackEngine implements PlaybackEngine, VideoSurfaceProvider {
     }
     await _player.dispose();
     await _controller.close();
+    await _statsController.close();
   }
 }

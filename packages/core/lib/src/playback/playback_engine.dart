@@ -1,5 +1,6 @@
 import 'playback_source.dart';
 import 'playback_state.dart';
+import 'playback_stats.dart';
 import 'playback_track.dart';
 
 /// Reproductor de video, sin atarse a una librería concreta.
@@ -11,6 +12,13 @@ abstract interface class PlaybackEngine {
 
   /// Emite el estado nuevo cada vez que cambia. Es un stream broadcast.
   Stream<PlaybackState> get stream;
+
+  /// Datos técnicos del video (resolución, códecs, caché...). Cambian aunque
+  /// el estado no cambie, así que van en su propio stream.
+  PlaybackStats get stats;
+
+  /// Emite los datos técnicos nuevos. Es un stream broadcast.
+  Stream<PlaybackStats> get statsStream;
 
   /// Abre [source] y empieza a reproducir. Un fallo no lanza: queda en
   /// `state.error`. Volver a llamar reintenta o cambia de video.
@@ -36,6 +44,10 @@ abstract interface class PlaybackEngine {
     String? title,
     String? language,
   });
+
+  /// Corre los subtítulos [delay] respecto del video: positivo los retrasa,
+  /// negativo los adelanta. Vale para el video actual.
+  Future<void> setSubtitleDelay(Duration delay);
 
   Future<void> dispose();
 }
