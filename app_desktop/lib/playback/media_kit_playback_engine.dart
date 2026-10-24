@@ -208,25 +208,21 @@ class MediaKitPlaybackEngine implements PlaybackEngine, VideoSurfaceProvider {
     // Con el medio ya cargado (pistas o duración), los errores que avisa mpv
     // (un subtítulo que no abre, un cuadro que no decodifica) no cortan la
     // reproducción: solo se anotan.
-    if (!_gate.isFatalError) {
-      _log('Aviso de reproducción: ${redactUrlsInText(message)}');
-      return;
-    }
-    _fail(message);
+    final decision = decideEngineError(_gate, message);
+    _log(decision.logLine);
+    if (decision.fatal) _setError(decision.userMessage);
   }
 
   /// Deja el error en el estado con un mensaje propio: el texto de mpv puede
   /// llevar la URL del stream (con claves), así que no se guarda ni se muestra.
   void _fail(String raw) {
     _log('Error de reproducción: ${redactUrlsInText(raw)}');
-    _update(
-      (st) => st.copyWith(
-        error: playbackErrorMessage(raw),
-        buffering: false,
-        playing: false,
-      ),
-    );
+    _setError(playbackErrorMessage(raw));
   }
+
+  void _setError(String userMessage) => _update(
+    (st) => st.copyWith(error: userMessage, buffering: false, playing: false),
+  );
 
   @override
   Future<void> open(PlaybackSource source) async {
@@ -268,13 +264,27 @@ class MediaKitPlaybackEngine implements PlaybackEngine, VideoSurfaceProvider {
     final platform = _player.platform;
     if (platform is! mk.NativePlayer) return;
     if (!_configured) {
-      _configured = true;
+      // Si una opción de caché no se aplica no es un error de la fuente: se
+      // anota y se sigue con el resto.
       for (final option in cacheProfile.mpvOptions.entries) {
-        await platform.setProperty(option.key, option.value);
+        await _setOption(platform, option.key, option.value);
       }
       _log('Caché: ${cacheProfile.label}');
+      _configured = true;
     }
-    await platform.setProperty('sub-delay', '0');
+    await _setOption(platform, 'sub-delay', '0');
+  }
+
+  Future<void> _setOption(
+    mk.NativePlayer platform,
+    String name,
+    String value,
+  ) async {
+    try {
+      await platform.setProperty(name, value);
+    } on Object catch (e) {
+      _log('No se pudo fijar $name: ${redactUrlsInText('$e')}');
+    }
   }
 
   /// Lee los datos técnicos de mpv y los emite si cambiaron.

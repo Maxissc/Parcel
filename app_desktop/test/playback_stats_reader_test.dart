@@ -36,6 +36,29 @@ void main() {
     });
   });
 
+  group('decideEngineError: lo que hace el motor con un error de mpv', () {
+    const raw = 'Failed to open http://host.example.com/v.mkv?token=SECRETO';
+
+    test('sin pistas ni duración es fatal, con mensaje propio y sin URL', () {
+      final decision = decideEngineError(MediaLoadGate(), raw);
+      expect(decision.fatal, isTrue);
+      expect(decision.userMessage, 'No se pudo abrir el video.');
+      expect(decision.logLine, contains('host.example.com'));
+      expect(decision.logLine, isNot(contains('SECRETO')));
+    });
+
+    test('la secuencia real: llegan las pistas y después el error → solo '
+        'un aviso', () {
+      final gate = MediaLoadGate();
+      expect(decideEngineError(gate, raw).fatal, isTrue);
+      gate.onTracks(hasAudio: true, hasVideo: true);
+      final decision = decideEngineError(gate, raw);
+      expect(decision.fatal, isFalse);
+      expect(decision.logLine, startsWith('Aviso de reproducción'));
+      expect(decision.logLine, isNot(contains('SECRETO')));
+    });
+  });
+
   group('dynamicRangeOf', () {
     test('pq es HDR10, hlg es HLG y lo demás es SDR', () {
       expect(dynamicRangeOf(gamma: 'pq'), DynamicRange.hdr10);

@@ -4,15 +4,23 @@ import 'package:parcel_core/parcel_core.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:window_manager/window_manager.dart';
 
+import '../app/diagnostics/diag_log.dart';
 import '../playback/media_kit_playback_engine.dart';
+import '../playback/playback_errors.dart';
 
 /// Crea el motor de reproducción. En la app es [MediaKitPlaybackEngine]; en
 /// los tests, un motor falso.
 typedef PlaybackEngineFactory = PlaybackEngine Function();
 
-final playbackEngineFactoryProvider = Provider<PlaybackEngineFactory>(
-  (ref) => MediaKitPlaybackEngine.new,
-);
+final playbackEngineFactoryProvider = Provider<PlaybackEngineFactory>((ref) {
+  final diag = ref.read(diagLogProvider);
+  // Solo con el diagnóstico prendido (debug): lo que cuenta el motor, sin URLs.
+  return () => MediaKitPlaybackEngine(
+    onLog: diag.enabled
+        ? (message) => diag.log('motor: ${redactUrlsInText(message)}')
+        : null,
+  );
+});
 
 /// Abre [uri] en el navegador. Devuelve `false` si no se pudo.
 typedef UrlOpener = Future<bool> Function(Uri uri);

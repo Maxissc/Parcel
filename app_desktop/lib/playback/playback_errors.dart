@@ -52,6 +52,32 @@ String playbackErrorMessage(String raw) {
   return 'No se pudo abrir el video.';
 }
 
+/// Qué hacer con un error que avisa mpv: si corta la reproducción, el mensaje
+/// para el usuario y la línea para el log (ambos sin URLs).
+class EngineErrorDecision {
+  const EngineErrorDecision({
+    required this.fatal,
+    required this.userMessage,
+    required this.logLine,
+  });
+
+  final bool fatal;
+  final String userMessage;
+  final String logLine;
+}
+
+/// Decide con [gate] si el error [raw] de mpv es fatal.
+EngineErrorDecision decideEngineError(MediaLoadGate gate, String raw) {
+  final fatal = gate.isFatalError;
+  return EngineErrorDecision(
+    fatal: fatal,
+    userMessage: playbackErrorMessage(raw),
+    logLine:
+        '${fatal ? 'Error de reproducción' : 'Aviso de reproducción'}: '
+        '${redactUrlsInText(raw)}',
+  );
+}
+
 /// Sabe si el medio ya cargó, para decidir si un error de mpv es fatal.
 ///
 /// Los avisos de mpv con el medio cargado (un subtítulo que no abre, un cuadro
