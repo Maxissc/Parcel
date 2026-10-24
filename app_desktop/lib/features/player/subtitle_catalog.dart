@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:parcel_core/parcel_core.dart';
 
 import '../../data/app_settings.dart';
+import '../../playback/playback_errors.dart';
 import '../../shared/urls.dart';
 import 'track_labels.dart';
 import 'track_preferences.dart';
@@ -43,7 +44,10 @@ class SubtitleEntry {
   /// los datos de la pista embebida).
   final Subtitle subtitle;
   final SubtitleLanguage language;
-  final String label;
+
+  /// Texto para el menú, sin URLs. Puede cambiar de número si llegan más
+  /// subtítulos con el mismo nombre.
+  String label;
 
   /// La pista del archivo, si es embebido.
   final SubtitleTrack? embedded;
@@ -56,6 +60,11 @@ class SubtitleEntry {
 
   /// Si el análisis falló (no se pudo bajar o no tiene cues).
   bool analysisFailed = false;
+
+  // Última alineación calculada y con qué datos, para no repetir la cuenta.
+  SubtitleAlignment? _alignment;
+  List<SubtitleCue>? _alignmentCues;
+  Duration? _alignmentDuration;
 
   bool get isEmbedded => embedded != null;
 }
@@ -71,13 +80,16 @@ String? alignmentLabel(SubtitleAlignment? alignment) => switch (alignment) {
 /// Subtítulos de los addons de un video: los ordena con `rankSubtitles`, los
 /// baja y analiza en segundo plano (sin cargarlos al reproductor) y deja
 /// elegir el automático.
+///
+/// Es del contenido, no de cada intento de reproducción: [setExternal] suma
+/// lo que llega sin repetir lo que ya se bajó.
 class SubtitleCatalog extends ChangeNotifier {
   SubtitleCatalog({
-    this._fetcher,
+    SubtitleFetcher? fetcher,
     this.priority = SubtitleLanguage.defaultPriority,
     this.analyzePerLanguage = 8,
     this.concurrency = 4,
-  });
+  }) : _fetcher = fetcher;
 
   /// Con `null` no se baja nada: solo se ordenan y eligen las pistas del
   /// archivo.
@@ -89,6 +101,9 @@ class SubtitleCatalog extends ChangeNotifier {
   final int concurrency;
 
   final List<SubtitleEntry> _external = [];
+
+  // Los que están esperando o en camino de ser analizados.
+  final Set<SubtitleEntry> _queued = {};
   Duration? _videoDuration;
   bool _disposed = false;
 
@@ -97,6 +112,9 @@ class SubtitleCatalog extends ChangeNotifier {
 
   /// Los externos, ya ordenados.
   List<SubtitleEntry> get externals => List.unmodifiable(_external);
+
+  /// `true` mientras se bajan y analizan subtítulos.
+  bool get analyzing => _queued.isNotEmpty;
 
   /// Duración del video, para estimar la alineación. Cambiarla recalcula.
   Duration? get videoDuration => _videoDuration;
@@ -110,41 +128,63 @@ class SubtitleCatalog extends ChangeNotifier {
   SubtitleAlignment? alignmentOf(SubtitleEntry entry) {
     final cues = entry.cues;
     if (cues == null) return null;
-    return SubtitleAlignment.estimate(cues, _videoDuration);
+    if (!identical(entry._alignmentCues, cues) ||
+        entry._alignmentDuration != _videoDuration) {
+      entry
+        .._alignment = SubtitleAlignment.estimate(cues, _videoDuration)
+        .._alignmentCues = cues
+        .._alignmentDuration = _videoDuration;
+    }
+    return entry._alignment;
   }
 
-  /// Carga la lista de subtítulos de los addons y empieza el análisis.
+  /// Suma [subtitles] a los que ya hay (los repetidos, por URL, se ignoran) y
+  /// empieza a analizar los nuevos.
   void setExternal(List<Subtitle> subtitles) {
-    final seen = <String>{};
-    final usable = [
-      for (final s in subtitles)
-        if (isHttpUrl(s.url) && seen.add(s.url)) s,
-    ];
-    final ranked = rankSubtitles(usable, priority: priority);
+    final known = {for (final e in _external) e.subtitle.url: e};
+    final fresh = <Subtitle>[];
+    final seen = {...known.keys};
+    for (final s in subtitles) {
+      if (isHttpUrl(s.url) && seen.add(s.url)) fresh.add(s);
+    }
+    if (fresh.isEmpty) return;
+    final ranked = rankSubtitles([
+      for (final e in _external) e.subtitle,
+      ...fresh,
+    ], priority: priority);
     final names = <String, int>{};
     final counts = <String, int>{};
-    String baseName(Subtitle s) =>
-        s.label ?? _languageText(SubtitleLanguage.detect(s), s.lang);
+    String baseName(Subtitle s) => redactUrlsInText(
+      s.label ?? _languageText(SubtitleLanguage.detect(s), s.lang),
+    );
     for (final s in ranked) {
       counts.update(baseName(s), (n) => n + 1, ifAbsent: () => 1);
     }
+    final entries = <SubtitleEntry>[];
+    for (final s in ranked) {
+      final base = baseName(s);
+      final n = names.update(base, (n) => n + 1, ifAbsent: () => 1);
+      final label = counts[base]! > 1 ? '$base $n' : base;
+      final existing = known[s.url];
+      if (existing != null) {
+        existing.label = label;
+        entries.add(existing);
+      } else {
+        entries.add(
+          SubtitleEntry._(
+            id: 'ext:${s.id}',
+            subtitle: s,
+            language: SubtitleLanguage.detect(s),
+            label: label,
+            external: true,
+          ),
+        );
+      }
+    }
     _external
       ..clear()
-      ..addAll([
-        for (final s in ranked)
-          () {
-            final base = baseName(s);
-            final n = names.update(base, (n) => n + 1, ifAbsent: () => 1);
-            return SubtitleEntry._(
-              id: 'ext:${s.id}',
-              subtitle: s,
-              language: SubtitleLanguage.detect(s),
-              label: counts[base]! > 1 ? '$base $n' : base,
-              external: true,
-            );
-          }(),
-      ]);
-    analysisDone = _analyze();
+      ..addAll(entries);
+    analysisDone = Future.wait([analysisDone, _analyze()]).then((_) {});
     _notify();
   }
 
@@ -158,14 +198,22 @@ class SubtitleCatalog extends ChangeNotifier {
         (n) => n + 1,
         ifAbsent: () => 1,
       );
-      if (n <= analyzePerLanguage) todo.add(entry);
+      final pending =
+          entry.cues == null &&
+          !entry.analysisFailed &&
+          !_queued.contains(entry);
+      if (n <= analyzePerLanguage && pending) todo.add(entry);
     }
-    for (var i = 0; i < todo.length && !_disposed; i += concurrency) {
+    _queued.addAll(todo);
+    for (var i = 0; i < todo.length; i += concurrency) {
+      if (_disposed) break;
       await Future.wait([
         for (final entry in todo.skip(i).take(concurrency)) _fetchCues(entry),
       ]);
       _notify();
     }
+    _queued.removeAll(todo);
+    _notify();
   }
 
   Future<void> _fetchCues(SubtitleEntry entry) async {
@@ -184,12 +232,15 @@ class SubtitleCatalog extends ChangeNotifier {
     } on Object {
       // Sin URL en el error: solo se marca. El subtítulo sigue disponible.
       entry.analysisFailed = true;
+    } finally {
+      _queued.remove(entry);
     }
   }
 
   /// Las opciones del menú: las pistas [embedded] del archivo y los externos,
-  /// ordenadas por idioma. Dentro de un idioma van primero las embebidas y
-  /// después los externos «probablemente sincronizados».
+  /// ordenadas por idioma. Dentro de un idioma van primero los externos
+  /// «probablemente sincronizados», después la pista embebida y al final el
+  /// resto de los externos.
   List<SubtitleEntry> menuEntries(List<SubtitleTrack> embedded) {
     final all = <SubtitleEntry>[
       for (var i = 0; i < embedded.length; i++)
@@ -205,7 +256,7 @@ class SubtitleCatalog extends ChangeNotifier {
             id: 'emb:${t.id}',
             subtitle: subtitle,
             language: SubtitleLanguage.detect(subtitle),
-            label: trackLabel(t, i),
+            label: redactUrlsInText(trackLabel(t, i)),
             embedded: t,
           );
         }(),
@@ -222,8 +273,8 @@ class SubtitleCatalog extends ChangeNotifier {
     }
 
     int kind(SubtitleEntry e) {
-      if (e.isEmbedded) return 0;
-      return alignmentOf(e) == SubtitleAlignment.likely ? 1 : 2;
+      if (e.isEmbedded) return 1;
+      return alignmentOf(e) == SubtitleAlignment.likely ? 0 : 2;
     }
 
     final indexed = [for (var i = 0; i < ranked.length; i++) (i, ranked[i])];
@@ -251,9 +302,11 @@ class SubtitleCatalog extends ChangeNotifier {
   }
 
   /// Elección automática para [preferred] (código de Ajustes), entre
-  /// [embedded] y los externos. Por cada idioma de la prioridad: un externo
-  /// «probablemente sincronizado»; si no, la pista embebida de ese idioma; si
-  /// no, el mejor externo. `null` si no hay nada del idioma.
+  /// [embedded] y los externos. Español y Latinoamérica cuentan como un solo
+  /// grupo; cada idioma o grupo de la prioridad se agota antes de pasar al
+  /// siguiente. En un grupo gana un externo «probablemente sincronizado»; si
+  /// no, la pista embebida; si no, el mejor externo. `null` si no hay nada del
+  /// idioma.
   SubtitleEntry? pickAutomatic(
     String? preferred,
     List<SubtitleTrack> embedded, {
@@ -265,14 +318,32 @@ class SubtitleCatalog extends ChangeNotifier {
         if (includeExternal || e.isEmbedded) e,
     ];
     final languages = subtitlePriorityFor(preferred);
-    for (final language in languages ?? const <SubtitleLanguage?>[null]) {
-      final group = [
+    final groups = <List<SubtitleEntry>>[];
+    if (languages == null) {
+      groups.add([
         for (final e in entries)
-          if (language != null
-              ? e.language == language
-              : languagesMatch(e.subtitle.lang, preferred))
-            e,
-      ];
+          if (languagesMatch(e.subtitle.lang, preferred)) e,
+      ]);
+    } else {
+      const spanishFamily = {SubtitleLanguage.latam, SubtitleLanguage.spanish};
+      final sets = <Set<SubtitleLanguage>>[];
+      Set<SubtitleLanguage>? family;
+      for (final language in languages) {
+        if (spanishFamily.contains(language)) {
+          if (family == null) sets.add(family = {});
+          family.add(language);
+        } else {
+          sets.add({language});
+        }
+      }
+      for (final set in sets) {
+        groups.add([
+          for (final e in entries)
+            if (set.contains(e.language)) e,
+        ]);
+      }
+    }
+    for (final group in groups) {
       final likely = group.where(
         (e) => e.external && alignmentOf(e) == SubtitleAlignment.likely,
       );

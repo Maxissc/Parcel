@@ -129,12 +129,110 @@ void main() {
     expect(c.pickAutomatic('latam', const [])?.subtitle.id, 'la');
   });
 
-  test('agota el idioma preferido antes de pasar al siguiente', () async {
+  test('LatAm y español son un mismo grupo: gana el sincronizado', () async {
     final c = catalog({'la': srt(200), 'es': srt(595)});
     c.setExternal([sub('la', 'spl'), sub('es', 'spa')]);
     c.videoDuration = duration;
     await c.analysisDone;
-    expect(c.pickAutomatic('latam', const [])?.subtitle.id, 'la');
+    expect(c.pickAutomatic('latam', const [])?.subtitle.id, 'es');
+  });
+
+  test('un embebido en español gana a un externo LatAm no sincronizado '
+      'o sin analizar', () async {
+    const embedded = [
+      SubtitleTrack(id: '2', language: 'spa', title: 'Castellano'),
+    ];
+    // Desfasado.
+    final unlikely = catalog({'la': srt(200)});
+    unlikely.setExternal([sub('la', 'spl')]);
+    unlikely.videoDuration = duration;
+    await unlikely.analysisDone;
+    expect(unlikely.pickAutomatic('latam', embedded)?.isEmbedded, isTrue);
+
+    // Sin analizar (no bajó).
+    final unanalyzed = catalog({});
+    unanalyzed.setExternal([sub('la', 'spl')]);
+    unanalyzed.videoDuration = duration;
+    await unanalyzed.analysisDone;
+    expect(unanalyzed.pickAutomatic('latam', embedded)?.isEmbedded, isTrue);
+  });
+
+  test('un externo LatAm probablemente sincronizado gana sobre todo', () async {
+    const embedded = [
+      SubtitleTrack(id: '2', language: 'spa', title: 'Castellano'),
+    ];
+    final c = catalog({'la': srt(595)});
+    c.setExternal([sub('la', 'spl')]);
+    c.videoDuration = duration;
+    await c.analysisDone;
+    expect(c.pickAutomatic('latam', embedded)?.subtitle.id, 'la');
+  });
+
+  test('en el menú, dentro de cada idioma: sincronizados, embebido y el '
+      'resto', () async {
+    final c = catalog({'es1': srt(300), 'es2': srt(595)});
+    c.setExternal([sub('es1', 'spa'), sub('es2', 'spa')]);
+    c.videoDuration = duration;
+    await c.analysisDone;
+    final entries = c.menuEntries(const [
+      SubtitleTrack(id: '3', language: 'spa', title: 'Castellano'),
+    ]);
+    expect(entries.map((e) => e.isEmbedded ? 'emb' : e.subtitle.id), [
+      'es2',
+      'emb',
+      'es1',
+    ]);
+  });
+
+  test('un análisis encima de otro no baja dos veces lo mismo', () async {
+    final requested = <String>[];
+    final client = MockClient((request) async {
+      requested.add(request.url.path);
+      return http.Response(srt(595), 200);
+    });
+    final c = SubtitleCatalog(fetcher: SubtitleFetcher(client));
+    c.setExternal([sub('a', 'spa')]);
+    c.setExternal([sub('a', 'spa'), sub('b', 'spa')]);
+    expect(c.analyzing, isTrue);
+    await c.analysisDone;
+    expect(c.analyzing, isFalse);
+    expect(requested..sort(), ['/a.srt', '/b.srt']);
+    expect(c.externals.where((e) => e.cues != null), hasLength(2));
+  });
+
+  test(
+    'un pedido nuevo con otros subtítulos suma sin perder lo analizado',
+    () async {
+      final c = catalog({'a': srt(595), 'b': srt(595)});
+      c.setExternal([sub('a', 'spa')]);
+      await c.analysisDone;
+      final first = c.externals.single;
+      c.setExternal([sub('b', 'spa')]);
+      await c.analysisDone;
+      expect(c.externals, hasLength(2));
+      expect(
+        c.externals.any((e) => identical(e, first) && e.cues != null),
+        isTrue,
+      );
+    },
+  );
+
+  test('los textos de los subtítulos no llevan URLs', () {
+    final c = catalog({});
+    c.setExternal([
+      sub('a', 'spa', label: 'Grupo http://x.example.com/s?k=SECRETO'),
+    ]);
+    final entries = c.menuEntries(const [
+      SubtitleTrack(
+        id: '1',
+        language: 'eng',
+        title: 'Ver https://y.example.com/p?k=SECRETO',
+      ),
+    ]);
+    for (final e in entries) {
+      expect(e.label, isNot(contains('SECRETO')));
+      expect(e.label, isNot(contains('http')));
+    }
   });
 
   test(

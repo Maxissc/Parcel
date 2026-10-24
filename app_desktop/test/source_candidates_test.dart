@@ -74,9 +74,7 @@ void main() {
   test('sin bingeGroup, para el episodio siguiente van primero los del '
       'mismo addon (listos antes que el resto)', () {
     final groups = [
-      _group('https://b.example.com/manifest.json', 'B', [
-        _s('B 2160p [RD+]'),
-      ]),
+      _group('https://b.example.com/manifest.json', 'B', [_s('B 2160p [RD+]')]),
       _group('https://a.example.com/manifest.json', 'A', [
         _s('A 1080p [RD+]'),
         _s('A 720p'),
