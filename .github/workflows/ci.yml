@@ -5,6 +5,9 @@ on:
   push:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
   check:
     runs-on: windows-latest
@@ -15,6 +18,7 @@ jobs:
         with:
           channel: stable
           flutter-version: 3.47.8
+          cache: true
 
       - name: Instalar dependencias
         run: flutter pub get
@@ -22,10 +26,6 @@ jobs:
       - name: Analizar
         run: flutter analyze
 
-      - name: Tests de parcel_core
-        run: dart test
-        working-directory: packages/core
-
-      - name: Tests de parcel_desktop
-        run: flutter test
-        working-directory: app_desktop
+      - name: Tests
+        shell: pwsh
+        run: ./tool/test.ps1
