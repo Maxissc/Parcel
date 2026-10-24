@@ -96,8 +96,11 @@ class StreamProber {
     final abort = Completer<void>();
     final done = Completer<ProbeResult>();
     void finish(ProbeResult result) {
-      if (!done.isCompleted) done.complete(result);
-      if (!abort.isCompleted) abort.complete();
+      if (done.isCompleted) return;
+      done.complete(result);
+      // Si no sirvió (o venció el plazo), se corta el pedido que siga abierto.
+      // Si sirvió, el cuerpo ya se descartó y no hay nada que abortar.
+      if (!result.ok && !abort.isCompleted) abort.complete();
     }
 
     final timer = Timer(

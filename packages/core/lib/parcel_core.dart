@@ -29,6 +29,7 @@ export 'src/playback/playback_source.dart';
 export 'src/playback/playback_state.dart';
 export 'src/playback/playback_track.dart';
 export 'src/playback/playback_utils.dart';
+export 'src/streams/auto_stream_selector.dart';
 export 'src/streams/stream_prober.dart';
 export 'src/streams/stream_ranking.dart';
 export 'src/streams/stream_signals.dart';
