@@ -154,11 +154,13 @@ void main() {
     final sub = engine.stream.listen(seen.add);
     await engine.open(PlaybackSource(url: 'http://x'));
     await engine.pause();
+    await engine.play();
     await Future<void>.delayed(Duration.zero);
     await sub.cancel();
 
-    expect(seen, isNotEmpty);
-    expect(seen.last.playing, isFalse);
+    expect(seen.map((s) => s.playing), [true, false, true]);
+    expect(seen.first.duration, const Duration(minutes: 10));
+    expect(seen.first.audioTracks, const [_es, _en]);
     expect(seen.last, engine.state);
   });
 
