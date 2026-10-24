@@ -57,6 +57,26 @@ void main() {
   });
 
   group('éxito', () {
+    test(
+      'una lista HLS chica es válida (el video viene en segmentos)',
+      () async {
+        for (final type in [
+          'application/vnd.apple.mpegurl',
+          'application/x-mpegURL; charset=utf-8',
+        ]) {
+          final fake = _Fake(
+            (_) async => _response(
+              200,
+              headers: {'content-type': type},
+              contentLength: 900,
+            ),
+          );
+          final result = await StreamProber(fake.client).probe(_stream());
+          expect(result.ok, isTrue, reason: type);
+        }
+      },
+    );
+
     test('206 con Content-Range de 1,5 GB', () async {
       final fake = _Fake(
         (_) async => _response(

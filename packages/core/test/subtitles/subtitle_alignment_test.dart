@@ -47,13 +47,14 @@ void main() {
       expect(_estimate(7200 * 25 / 23.976), SubtitleAlignment.fpsMismatch);
     });
 
-    test('23,976 / 25: termina 4,1 % antes', () {
-      expect(_estimate(7200 * 23.976 / 25), SubtitleAlignment.fpsMismatch);
+    test('23,976 / 25 (termina 4,1 % antes) queda como likely: no se distingue '
+        'de un subtítulo que termina antes de los créditos', () {
+      expect(_estimate(7200 * 23.976 / 25), SubtitleAlignment.likely);
     });
 
-    test('24 / 25 en los dos sentidos', () {
+    test('25 / 24 marca otra velocidad; 24 / 25 queda como likely', () {
       expect(_estimate(7200 * 25 / 24), SubtitleAlignment.fpsMismatch);
-      expect(_estimate(7200 * 24 / 25), SubtitleAlignment.fpsMismatch);
+      expect(_estimate(7200 * 24 / 25), SubtitleAlignment.likely);
     });
 
     test('tolera ±0,6 % alrededor del cociente', () {

@@ -178,6 +178,14 @@ class StreamProber {
         contentType: contentType,
       );
     }
+    // Una lista HLS es chica por definición: el video viene en segmentos.
+    if (_isHlsType(contentType)) {
+      return ProbeResult.success(
+        statusCode: status,
+        totalBytes: total,
+        contentType: contentType,
+      );
+    }
     if (!_isVideoType(contentType)) {
       return ProbeResult.failure(
         ProbeFailure.type,
@@ -228,6 +236,15 @@ bool _isVideoType(String? contentType) {
   return type.startsWith('video/') ||
       type == 'application/octet-stream' ||
       type == 'application/x-matroska';
+}
+
+bool _isHlsType(String? contentType) {
+  if (contentType == null) return false;
+  final type = contentType.split(';').first.trim().toLowerCase();
+  return type == 'application/vnd.apple.mpegurl' ||
+      type == 'application/x-mpegurl' ||
+      type == 'audio/mpegurl' ||
+      type == 'audio/x-mpegurl';
 }
 
 final RegExp _contentRange = RegExp(r'^\s*bytes\s+\d+-\d+/(\d+|\*)\s*$');
