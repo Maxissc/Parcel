@@ -20,7 +20,8 @@ class InstalledAddon {
     final url = asNonEmptyString(json['transportUrl']);
     final manifest = asMap(json['manifest']);
     if (url == null || manifest == null) {
-      throw FormatException('Addon instalado inválido', json);
+      // Sin el JSON como `source`: lleva la transportUrl, que puede tener tokens.
+      throw const FormatException('Addon instalado inválido');
     }
     return InstalledAddon(
       transportUrl: url,

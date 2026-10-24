@@ -18,6 +18,19 @@ void main() {
     expect('$addon', contains('addon.example'));
   });
 
+  test('InstalledAddon.fromJson inválido no lleva la transportUrl en la '
+      'excepción', () {
+    try {
+      InstalledAddon.fromJson({
+        'transportUrl': 'https://addon.example/$secret/manifest.json',
+      });
+      fail('debía tirar FormatException');
+    } on FormatException catch (e) {
+      expect(e.source, isNull);
+      expect(e.toString(), isNot(contains(secret)));
+    }
+  });
+
   test('PlaybackSource.toString muestra solo el host', () {
     final source = PlaybackSource(
       url: 'https://cdn.example/$secret/video.mkv?sig=$secret',
