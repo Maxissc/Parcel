@@ -17,6 +17,12 @@ import 'package:parcel_core/parcel_core.dart';
 /// - `PARCEL_DIAG_PASTE`: texto con URLs de addons; completa solo el paso
 ///   «Pegar lista» del asistente, confirma la importación y deja el informe en
 ///   el log (líneas `[diag]`).
+/// - `PARCEL_DIAG_OPEN`: `tipo/id` (por ejemplo `series/tt0903747`); abre su
+///   detalle y pide sus streams, y cuenta lo que cargó en el log.
+/// - `PARCEL_DIAG_SEARCH`: texto a buscar; abre Buscar con ese texto y cuenta
+///   los resultados.
+/// - `PARCEL_DIAG_PLAY_FIRST_STREAM=1`: con `PARCEL_DIAG_OPEN`, reproduce el
+///   primer stream reproducible que aparezca.
 class DiagnosticsConfig {
   const DiagnosticsConfig({
     this.url,
@@ -25,6 +31,9 @@ class DiagnosticsConfig {
     this.exitAfter,
     this.logPath,
     this.paste,
+    this.open,
+    this.search,
+    this.playFirstStream = false,
   });
 
   final String? url;
@@ -35,6 +44,13 @@ class DiagnosticsConfig {
 
   /// Texto a pegar en el asistente de migración; `null` si no hay.
   final String? paste;
+
+  /// `tipo/id` del contenido a abrir; `null` si no hay.
+  final String? open;
+
+  /// Texto a buscar; `null` si no hay.
+  final String? search;
+  final bool playFirstStream;
 
   /// `null` si no es debug o no está `PARCEL_DIAG`.
   static DiagnosticsConfig? fromEnvironment([Map<String, String>? env]) {
@@ -50,6 +66,9 @@ class DiagnosticsConfig {
       exitAfter: exit == null ? null : Duration(seconds: exit),
       logPath: nonEmpty(e['PARCEL_DIAG_LOG']),
       paste: nonEmpty(e['PARCEL_DIAG_PASTE']),
+      open: nonEmpty(e['PARCEL_DIAG_OPEN']),
+      search: nonEmpty(e['PARCEL_DIAG_SEARCH']),
+      playFirstStream: e['PARCEL_DIAG_PLAY_FIRST_STREAM'] == '1',
     );
   }
 }

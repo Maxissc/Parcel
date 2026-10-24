@@ -3,8 +3,11 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:parcel_desktop/app/diagnostics/diag_log.dart';
+import 'package:parcel_core/parcel_core.dart';
 import 'package:parcel_desktop/app/diagnostics/playback_diagnostics.dart';
+import 'package:parcel_desktop/data/platform.dart';
 
+import 'support/catalog_world.dart';
 import 'support/pump.dart';
 import 'support/test_env.dart';
 
@@ -79,4 +82,179 @@ void main() {
       expect(log, isNot(contains('/manifest.json')));
     },
   );
+
+  test('las variables del recorrido llegan a la configuración', () {
+    final config = DiagnosticsConfig.fromEnvironment({
+      'PARCEL_DIAG': '1',
+      'PARCEL_DIAG_OPEN': 'series/tt0903747',
+      'PARCEL_DIAG_SEARCH': 'matrix',
+      'PARCEL_DIAG_PLAY_FIRST_STREAM': '1',
+    });
+    expect(config?.open, 'series/tt0903747');
+    expect(config?.search, 'matrix');
+    expect(config?.playFirstStream, isTrue);
+    final off = DiagnosticsConfig.fromEnvironment({'PARCEL_DIAG': '1'});
+    expect(off?.open, isNull);
+    expect(off?.playFirstStream, isFalse);
+  });
+
+  group('recorrido de la navegación', () {
+    late CatalogWorld world;
+
+    setUp(() {
+      world = CatalogWorld();
+      for (final type in ['movie', 'series']) {
+        world.routes['v3-cinemeta.strem.io/catalog/$type/top/search=matrix.json'] =
+            {
+              'metas': type == 'movie'
+                  ? [metaItem('tt0133093', 'The Matrix')]
+                  : [],
+            };
+      }
+      world.routes['streams.example.com/stream/series/tt0903747:1:1.json'] = {
+        'streams': [
+          {'name': 'Streams uno', 'url': 'http://media.example.com/e1.mkv'},
+          {'name': 'Torrent', 'infoHash': 'abc'},
+        ],
+      };
+    });
+
+    Future<List<String>> run(
+      WidgetTester tester,
+      DiagnosticsConfig config, {
+      List<String> addons = const [
+        cinemetaUrl,
+        subtitlesUrl,
+        streamsAddonUrl,
+        secondStreamsAddonUrl,
+      ],
+      FakePlaybackEngine? engine,
+    }) async {
+      final lines = <String>[];
+      await seedData(
+        tester,
+        dir,
+        world.client,
+        urls: addons,
+        onboardingCompleted: true,
+      );
+      await pumpApp(
+        tester,
+        dir,
+        world.client,
+        overrides: [
+          diagnosticsConfigProvider.overrideWithValue(config),
+          diagLogProvider.overrideWithValue(DiagLog(sink: lines.add)),
+          if (engine != null)
+            playbackEngineFactoryProvider.overrideWithValue(() => engine),
+        ],
+      );
+      for (var i = 0; i < 40; i++) {
+        await pumpIo(tester, ticks: 3);
+        final done = lines.any(
+          (l) =>
+              l.contains('streams series tt0903747:1:1: Streams dos') ||
+              l.contains('ningún addon instalado ofrece streams'),
+        );
+        if (done) break;
+      }
+      await pumpIo(tester, ticks: 3);
+      return lines;
+    }
+
+    testWidgets('cuenta inicio, búsqueda, detalle y streams en el log', (
+      tester,
+    ) async {
+      final lines = await run(
+        tester,
+        const DiagnosticsConfig(open: 'series/tt0903747', search: 'matrix'),
+      );
+      final log = lines.join('\n');
+
+      expect(lines, everyElement(startsWith('[diag] ')));
+      expect(
+        log,
+        contains('home fila «Popular · Películas» (Cinemeta): 2 ítems'),
+      );
+      expect(
+        log,
+        contains('home fila «Sin nada · Películas» (Cinemeta): vacía'),
+      );
+      expect(log, contains('home: 3 de 4 catálogos con ítems'));
+      expect(log, contains('seguir viendo: 0 ítems'));
+      expect(
+        log,
+        contains(
+          'búsqueda «matrix»: 2 catálogos con búsqueda; '
+          '«Popular · Películas» 1 resultados; «Popular · Series» 0 resultados',
+        ),
+      );
+      expect(
+        log,
+        contains(
+          'detalle series/tt0903747: «Breaking Bad» · 6 episodios · '
+          '3 temporadas [1, 2, 0]',
+        ),
+      );
+      expect(
+        log,
+        contains(
+          'streams series tt0903747:1:1: Streams uno: 2 streams '
+          '(1 reproducibles)',
+        ),
+      );
+      expect(
+        log,
+        contains('streams series tt0903747:1:1: Streams dos: falló (http)'),
+      );
+      await tester.pumpWidget(const SizedBox());
+    });
+
+    testWidgets('sin addons de streams dice que ninguno ofrece streams', (
+      tester,
+    ) async {
+      final lines = await run(
+        tester,
+        const DiagnosticsConfig(open: 'movie/tt0133093'),
+        addons: const [cinemetaUrl, subtitlesUrl],
+      );
+
+      expect(
+        lines.join('\n'),
+        contains(
+          'streams movie tt0133093: ningún addon instalado ofrece streams '
+          'para esto',
+        ),
+      );
+      await tester.pumpWidget(const SizedBox());
+    });
+
+    testWidgets('PARCEL_DIAG_PLAY_FIRST_STREAM reproduce el primer stream', (
+      tester,
+    ) async {
+      final engine = FakePlaybackEngine(
+        mediaDuration: const Duration(minutes: 10),
+      );
+      final lines = await run(
+        tester,
+        const DiagnosticsConfig(
+          open: 'series/tt0903747',
+          playFirstStream: true,
+        ),
+        engine: engine,
+      );
+      await tester.pump(const Duration(seconds: 2));
+      await pumpIo(tester, ticks: 10);
+
+      expect(
+        lines.join('\n'),
+        contains(
+          'reproducción: abre el primer stream reproducible de Streams uno',
+        ),
+      );
+      expect(engine.lastSource?.url, 'http://media.example.com/e1.mkv');
+      await tester.pumpWidget(const SizedBox());
+      await pumpIo(tester, ticks: 4);
+    });
+  });
 }

@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:parcel_core/parcel_core.dart';
 
+import '../../app/diagnostics/diag_log.dart';
 import '../../app/router.dart';
 import '../../app/theme.dart';
 import '../../data/providers.dart';
@@ -47,6 +48,11 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   @override
   void initState() {
     super.initState();
+    final diagSearch = ref.read(diagnosticsConfigProvider)?.search;
+    if (diagSearch != null) {
+      _controller.text = diagSearch;
+      _query = diagSearch;
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) => _focusField());
   }
 
