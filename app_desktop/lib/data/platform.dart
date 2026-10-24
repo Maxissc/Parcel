@@ -37,6 +37,10 @@ abstract class WindowService {
 
   /// Título de la ventana (el de la barra y el de la barra de tareas).
   Future<void> setTitle(String title);
+
+  /// Con [beforeClose], cerrar la ventana primero lo espera (por ejemplo, para
+  /// guardar el progreso) y recién después cierra. Con `null` se cierra directo.
+  Future<void> setCloseHandler(Future<void> Function()? beforeClose);
 }
 
 /// No hace nada: es lo que usan los tests.
@@ -51,6 +55,30 @@ class NoopWindowService implements WindowService {
 
   @override
   Future<void> setTitle(String title) async {}
+
+  @override
+  Future<void> setCloseHandler(Future<void> Function()? beforeClose) async {}
+}
+
+/// Cuánto se espera, como máximo, a lo que hay que terminar antes de cerrar.
+const Duration closeGracePeriod = Duration(seconds: 5);
+
+class _CloseListener with WindowListener {
+  Future<void> Function()? beforeClose;
+  bool _closing = false;
+
+  @override
+  Future<void> onWindowClose() async {
+    if (_closing) return;
+    _closing = true;
+    try {
+      await beforeClose?.call().timeout(closeGracePeriod);
+    } on Object {
+      // Si guardar falla o tarda de más, igual se cierra: no se deja la
+      // ventana trabada.
+    }
+    await windowManager.destroy();
+  }
 }
 
 /// Ventana de escritorio, con `window_manager`.
@@ -85,6 +113,19 @@ class DesktopWindowService implements WindowService {
 
   @override
   Future<void> setTitle(String title) => windowManager.setTitle(title);
+
+  static final _CloseListener _closeListener = _CloseListener();
+  static bool _closeListenerAdded = false;
+
+  @override
+  Future<void> setCloseHandler(Future<void> Function()? beforeClose) async {
+    _closeListener.beforeClose = beforeClose;
+    if (!_closeListenerAdded) {
+      windowManager.addListener(_closeListener);
+      _closeListenerAdded = true;
+    }
+    await windowManager.setPreventClose(beforeClose != null);
+  }
 }
 
 final windowServiceProvider = Provider<WindowService>(

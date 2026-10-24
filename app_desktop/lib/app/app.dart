@@ -1,9 +1,12 @@
+import 'dart:async';
 import 'dart:ui' show AppExitResponse;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:parcel_core/parcel_core.dart';
 
+import '../data/platform.dart';
+import '../data/progress_providers.dart';
 import '../data/providers.dart';
 import '../shared/state_views.dart';
 import 'diagnostics/diagnostics_driver.dart';
@@ -21,23 +24,37 @@ class ParcelApp extends ConsumerStatefulWidget {
 
 class _ParcelAppState extends ConsumerState<ParcelApp> {
   late final AppLifecycleListener _lifecycle;
+  late final WindowService _window;
 
   @override
   void initState() {
     super.initState();
     _lifecycle = AppLifecycleListener(onExitRequested: _onExitRequested);
+    _window = ref.read(windowServiceProvider);
+    unawaited(_window.setCloseHandler(_saveBeforeClose));
   }
 
   @override
   void dispose() {
+    unawaited(_window.setCloseHandler(null));
     _lifecycle.dispose();
     super.dispose();
   }
 
-  /// Al salir se cierra el cliente HTTP y el repositorio de addons.
+  /// Al cerrar la ventana: guarda dónde va el video abierto (si hay) y espera
+  /// a que termine de escribirse todo lo pendiente.
+  Future<void> _saveBeforeClose() async {
+    ref.read(activePlayerProvider).saveNow();
+    await ref.read(appDataProvider).value?.flush();
+  }
+
+  /// Al salir se espera lo pendiente y se cierra el cliente HTTP y el
+  /// repositorio de addons.
   Future<AppExitResponse> _onExitRequested() async {
+    final data = ref.read(appDataProvider).value;
+    await data?.flush();
     ref.read(httpClientProvider).close();
-    await ref.read(appDataProvider).value?.dispose();
+    await data?.dispose();
     return AppExitResponse.exit;
   }
 

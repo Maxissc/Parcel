@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:parcel_core/parcel_core.dart';
@@ -59,6 +60,7 @@ class _PlayerRouteState extends ConsumerState<PlayerRoute> {
   late final WindowService _window;
   late final ProgressSaver _saver;
   late final DiagLog _diag;
+  late final ActivePlayer _active;
   Future<List<Subtitle>>? _addonSubtitles;
   TrackPreferences? _preferences;
 
@@ -74,6 +76,7 @@ class _PlayerRouteState extends ConsumerState<PlayerRoute> {
     _window = ref.read(windowServiceProvider);
     _saver = ref.read(progressSaverProvider);
     _diag = ref.read(diagLogProvider);
+    _active = ref.read(activePlayerProvider)..register(_saveNow);
     _engine = ref.read(playbackEngineFactoryProvider)();
     final diag = ref.read(diagnosticsConfigProvider);
     if (diag != null) {
@@ -124,38 +127,64 @@ class _PlayerRouteState extends ConsumerState<PlayerRoute> {
     final choice = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        title: const Text('Ya empezaste esto'),
-        content: Text(
-          'Lo dejaste en ${formatPlaybackTime(saved.position)} de '
-          '${formatPlaybackTime(saved.duration)}.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Desde el principio'),
+      builder: (context) => CallbackShortcuts(
+        // Esc es «volver»: cierra la pregunta y el reproductor, sin reproducir.
+        bindings: {
+          const SingleActivator(LogicalKeyboardKey.escape): () =>
+              Navigator.of(context).pop(),
+        },
+        child: AlertDialog(
+          title: const Text('Ya empezaste esto'),
+          content: Text(
+            'Lo dejaste en ${formatPlaybackTime(saved.position)} de '
+            '${formatPlaybackTime(saved.duration)}.',
           ),
-          FilledButton(
-            autofocus: true,
-            onPressed: () => Navigator.of(context).pop(true),
-            child: Text(
-              'Continuar desde ${formatPlaybackTime(saved.position)}',
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Desde el principio'),
             ),
-          ),
-        ],
+            FilledButton(
+              autofocus: true,
+              onPressed: () => Navigator.of(context).pop(true),
+              child: Text(
+                'Continuar desde ${formatPlaybackTime(saved.position)}',
+              ),
+            ),
+          ],
+        ),
       ),
     );
     if (!mounted) return;
-    setState(() => _start = choice == true ? saved.position : Duration.zero);
+    if (choice == null) {
+      if (context.canPop()) {
+        context.pop();
+      } else {
+        context.go(Routes.home);
+      }
+      return;
+    }
+    setState(() => _start = choice ? saved.position : Duration.zero);
   }
 
   @override
   void dispose() {
+    _active.unregister(_saveNow);
     _window.setFullScreen(false);
     unawaited(_window.setTitle(appName));
     // Si nunca se llegó a armar la pantalla, el motor sigue siendo de la ruta.
     if (!_screenBuilt) unawaited(_engine.dispose());
     super.dispose();
+  }
+
+  /// Guarda dónde va el video ahora (al cerrar la ventana). Con las mismas
+  /// reglas que la pantalla: sin error, con duración y pasados unos segundos.
+  void _saveNow() {
+    if (!_screenBuilt) return;
+    final s = _engine.state;
+    if (s.error != null || s.duration <= Duration.zero) return;
+    if (s.position < PlayerScreen.minProgress) return;
+    _saveProgress(s.position, s.duration);
   }
 
   void _saveProgress(Duration position, Duration duration) {
@@ -171,11 +200,22 @@ class _PlayerRouteState extends ConsumerState<PlayerRoute> {
       poster: item.meta.poster,
       updatedAt: DateTime.now(),
     );
-    unawaited(_saver.save(progress));
+    unawaited(_write(progress));
     _diag.log(
       'progreso guardado: ${item.title} '
       '${formatPlaybackTime(position)} / ${formatPlaybackTime(duration)}',
     );
+  }
+
+  /// Guarda en disco. Si falla (disco lleno, sin permisos) no rompe la
+  /// reproducción: queda anotado en el diagnóstico y se vuelve a intentar con
+  /// el próximo guardado.
+  Future<void> _write(PlaybackProgress progress) async {
+    try {
+      await _saver.save(progress);
+    } on Object catch (e) {
+      _diag.log('progreso no guardado: ${e.runtimeType}');
+    }
   }
 
   NextEpisode? _nextEpisode() {

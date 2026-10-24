@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -157,6 +158,90 @@ void main() {
     expect(stored(tester)!.position, const Duration(minutes: 3));
     expect(find.byKey(const Key('player-controls')), findsNothing);
     await pumpIo(tester);
+  });
+
+  testWidgets('cerrar la ventana con el video abierto guarda la posición', (
+    tester,
+  ) async {
+    final fake = engine();
+    await openPlayer(
+      tester,
+      fake,
+      PlayerArgs(url: 'http://media.example.com/video.mkv', item: _movieItem()),
+    );
+    fake.tick(const Duration(minutes: 4));
+    await tester.pump();
+    expect(stored(tester), isNull, reason: 'mientras reproduce no guarda');
+
+    // Como el cierre de la ventana: guarda y espera a que se escriba el archivo.
+    var closed = false;
+    unawaited(window.beforeClose!().then((_) => closed = true));
+    await pumpIo(tester, ticks: 20);
+    expect(closed, isTrue);
+
+    expect(stored(tester)!.position, const Duration(minutes: 4));
+    final onDisk = File('${dir.path}/progress.json').readAsStringSync();
+    expect(onDisk, contains('"tt0133093"'));
+    await leavePlayer(tester);
+  });
+
+  testWidgets('si no se puede escribir el progreso, la reproducción sigue', (
+    tester,
+  ) async {
+    final fake = engine();
+    await openPlayer(
+      tester,
+      fake,
+      PlayerArgs(url: 'http://media.example.com/video.mkv', item: _movieItem()),
+    );
+    // Un directorio donde va el archivo temporal hace fallar la escritura.
+    Directory('${dir.path}/progress.json.tmp').createSync();
+    fake.tick(const Duration(minutes: 2));
+    await tester.pump();
+
+    await fake.pause();
+    await pumpIo(tester, ticks: 10);
+
+    expect(tester.takeException(), isNull);
+    expect(find.byKey(const Key('player-controls')), findsOneWidget);
+    expect(stored(tester)!.position, const Duration(minutes: 2));
+    Directory('${dir.path}/progress.json.tmp').deleteSync();
+    await leavePlayer(tester);
+  });
+
+  testWidgets('cerrar la ventana sin reproductor no guarda nada', (
+    tester,
+  ) async {
+    await seedData(tester, dir, world.client, onboardingCompleted: true);
+    await pumpApp(tester, dir, world.client, window: window);
+
+    var closed = false;
+    unawaited(window.beforeClose!().then((_) => closed = true));
+    await pumpIo(tester, ticks: 20);
+    expect(closed, isTrue);
+
+    expect(File('${dir.path}/progress.json').existsSync(), isFalse);
+  });
+
+  testWidgets('Esc en «Ya empezaste esto» vuelve sin reproducir', (
+    tester,
+  ) async {
+    final fake = engine();
+    await openPlayer(
+      tester,
+      fake,
+      PlayerArgs(url: 'http://media.example.com/video.mkv', item: _movieItem()),
+      saved: _saved(),
+    );
+    expect(find.text('Ya empezaste esto'), findsOneWidget);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await pumpIo(tester, ticks: 10);
+
+    expect(find.text('Ya empezaste esto'), findsNothing);
+    expect(find.byKey(const Key('player-controls')), findsNothing);
+    expect(fake.lastSource, isNull, reason: 'no se reprodujo nada');
+    expect(find.byType(NavigationRail), findsOneWidget);
   });
 
   testWidgets('guarda el progreso cada 10 segundos mientras reproduce', (

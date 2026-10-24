@@ -15,4 +15,12 @@ class FakeWindowService implements WindowService {
 
   @override
   Future<void> setTitle(String value) async => title = value;
+
+  /// Lo que la app pidió hacer antes de cerrar; el test lo corre como si el
+  /// usuario cerrara la ventana.
+  Future<void> Function()? beforeClose;
+
+  @override
+  Future<void> setCloseHandler(Future<void> Function()? handler) async =>
+      beforeClose = handler;
 }

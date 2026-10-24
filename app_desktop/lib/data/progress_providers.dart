@@ -50,6 +50,23 @@ final progressSaverProvider = Provider<ProgressSaver>((ref) {
   return ProgressSaver(repository, revision.bump, track: data.track);
 });
 
+/// El reproductor que está abierto, si hay uno: deja que la app le pida guardar
+/// el progreso ahora (por ejemplo, al cerrar la ventana).
+final activePlayerProvider = Provider<ActivePlayer>((ref) => ActivePlayer());
+
+class ActivePlayer {
+  void Function()? _saveNow;
+
+  void register(void Function() saveNow) => _saveNow = saveNow;
+
+  void unregister(void Function() saveNow) {
+    if (_saveNow == saveNow) _saveNow = null;
+  }
+
+  /// Guarda la posición actual del reproductor abierto; no hace nada si no hay.
+  void saveNow() => _saveNow?.call();
+}
+
 class ProgressSaver {
   ProgressSaver(
     this._repository,
