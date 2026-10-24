@@ -204,6 +204,39 @@ void main() {
       expect(addons[2].profileId, 2);
     });
 
+    test('profile_id acepta entero o string numérico', () async {
+      final client = fake.client();
+      final session = await client.login('persona@example.com', 'x');
+      fake.onAddons = (_) => http.Response(
+        '[{"url":"https://a.example.com","profile_id":3},'
+        '{"url":"https://b.example.com","profile_id":"2"},'
+        '{"url":"https://c.example.com"}]',
+        200,
+      );
+      final addons = await client.getAddons(session);
+      expect(addons.map((a) => a.profileId), [3, 2, 1]);
+    });
+
+    test('un profile_id no numérico no se mezcla con el perfil 1', () async {
+      final client = fake.client();
+      final session = await client.login('persona@example.com', 'x');
+      fake.onAddons = (_) => http.Response(
+        '[{"url":"https://a.example.com","profile_id":"niños"},'
+        '{"url":"https://b.example.com","profile_id":"adultos"},'
+        '{"url":"https://c.example.com","profile_id":"niños"},'
+        '{"url":"https://d.example.com","profile_id":1}]',
+        200,
+      );
+      final ids = (await client.getAddons(session))
+          .map((a) => a.profileId)
+          .toList();
+      expect(ids[0], isNot(1));
+      expect(ids[1], isNot(1));
+      expect(ids[0], isNot(ids[1]));
+      expect(ids[0], ids[2]); // estable: el mismo texto da el mismo id
+      expect(ids[3], 1);
+    });
+
     test('sin permiso (RLS) o token vencido, sesión vencida', () async {
       final client = fake.client();
       final session = await client.login('persona@example.com', 'x');
