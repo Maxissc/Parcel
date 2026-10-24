@@ -361,12 +361,20 @@ class OnboardingController extends Notifier<OnboardingState> {
     return report.items;
   }
 
+  /// Nombre y host del addon para el log; nunca la URL completa.
+  String _label(MigrationCandidate c) {
+    final host = redactAddonUrl(c.transportUrl);
+    return c.displayName == host
+        ? host
+        : redactAddonUrl(c.transportUrl, name: c.displayName);
+  }
+
   void _logReport() {
     if (!_diag.enabled) return;
     for (final item in state.items) {
       _diag.log(
         'onboarding addon '
-        '${redactAddonUrl(item.candidate.transportUrl, name: item.candidate.displayName)} '
+        '${_label(item.candidate)} '
         'resultado=${item.outcome.name}'
         '${item.outcome == MigrationOutcome.failed ? ' motivo="${item.message}"' : ''}',
       );

@@ -141,6 +141,48 @@ void main() {
       },
     );
 
+    testWidgets(
+      'Borrar todos los datos pide confirmación y vuelve al asistente',
+      (tester) async {
+        await openSettings(tester);
+        expect(File('${dir.path}/addons.json').existsSync(), isTrue);
+        await tester.scrollUntilVisible(
+          find.text('Borrar todos los datos'),
+          200,
+        );
+
+        // Cancelar no borra nada.
+        await tester.tap(find.text('Borrar todos los datos'));
+        await tester.pumpAndSettle();
+        expect(find.text('¿Borrar todos los datos?'), findsOneWidget);
+        await tester.tap(find.text('Cancelar'));
+        await tester.pumpAndSettle();
+        expect(File('${dir.path}/addons.json').existsSync(), isTrue);
+
+        await tester.tap(find.text('Borrar todos los datos'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Borrar todo'));
+        await pumpUntil(tester, find.text('Traé tus addons'));
+
+        expect(File('${dir.path}/addons.json').existsSync(), isFalse);
+        expect(find.byType(NavigationRail), findsNothing);
+      },
+    );
+
+    testWidgets('Volver a correr el asistente lo abre desde el paso 1', (
+      tester,
+    ) async {
+      await openSettings(tester);
+      await tester.scrollUntilVisible(
+        find.text('Volver a correr el asistente'),
+        200,
+      );
+      await tester.tap(find.text('Volver a correr el asistente'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Traé tus addons'), findsOneWidget);
+    });
+
     testWidgets('Probar reproductor pide la URL y abre el reproductor', (
       tester,
     ) async {
