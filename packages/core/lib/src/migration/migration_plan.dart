@@ -3,7 +3,7 @@ import '../models/json_helpers.dart';
 import '../protocol/manifest_url.dart';
 import 'nuvio_account_client.dart';
 import 'pasted_addons_parser.dart';
-import 'redact.dart';
+import '../protocol/redact.dart';
 import 'stremio_account_client.dart';
 
 /// De dónde viene un candidato de migración.

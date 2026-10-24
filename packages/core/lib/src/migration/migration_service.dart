@@ -1,7 +1,7 @@
 import '../protocol/addon_exception.dart';
 import '../storage/addon_repository.dart';
 import 'migration_plan.dart';
-import 'redact.dart';
+import '../protocol/redact.dart';
 
 /// Qué pasó con un addon al aplicar el plan.
 enum MigrationOutcome { installed, alreadyInstalled, failed }

@@ -1,3 +1,5 @@
+import 'redact.dart';
+
 const String _manifestFile = 'manifest.json';
 
 /// Normaliza la URL de un manifest de addon.
@@ -14,7 +16,10 @@ String normalizeManifestUrl(String input) {
   if (uri == null ||
       !(uri.scheme == 'http' || uri.scheme == 'https') ||
       uri.host.isEmpty) {
-    throw FormatException('No es una URL de addon válida', input);
+    throw FormatException(
+      'No es una URL de addon válida',
+      redactAddonUrl(input),
+    );
   }
   var path = uri.path;
   while (path.endsWith('/')) {

@@ -6,7 +6,7 @@ import 'package:http/http.dart' as http;
 import '../models/json_helpers.dart';
 import 'account_exception.dart';
 import 'account_http.dart';
-import 'redact.dart';
+import '../protocol/redact.dart';
 
 const String _service = 'Stremio';
 const String _linkBase = 'https://link.stremio.com';

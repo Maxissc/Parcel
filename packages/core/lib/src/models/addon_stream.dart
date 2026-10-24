@@ -1,3 +1,4 @@
+import '../protocol/redact.dart';
 import 'json_helpers.dart';
 import 'subtitle.dart';
 
@@ -142,7 +143,10 @@ class AddonStream {
       Object.hash(url, ytId, infoHash, fileIdx, externalUrl, name);
 
   @override
-  String toString() => 'AddonStream(${name ?? url ?? infoHash ?? ytId})';
+  String toString() {
+    final shownUrl = url == null ? null : redactAddonUrl(url!);
+    return 'AddonStream(${name ?? shownUrl ?? infoHash ?? ytId})';
+  }
 }
 
 /// Lee una lista de streams y descarta los inválidos.

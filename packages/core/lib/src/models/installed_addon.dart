@@ -1,4 +1,5 @@
 import '../protocol/manifest_url.dart';
+import '../protocol/redact.dart';
 import 'addon_manifest.dart';
 import 'json_helpers.dart';
 
@@ -42,5 +43,6 @@ class InstalledAddon {
   int get hashCode => Object.hash(transportUrl, manifest);
 
   @override
-  String toString() => 'InstalledAddon(${manifest.name} $transportUrl)';
+  String toString() =>
+      'InstalledAddon(${redactAddonUrl(transportUrl, name: manifest.name)})';
 }

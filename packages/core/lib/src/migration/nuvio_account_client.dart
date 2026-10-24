@@ -5,7 +5,7 @@ import 'package:http/http.dart' as http;
 import '../models/json_helpers.dart';
 import 'account_exception.dart';
 import 'account_http.dart';
-import 'redact.dart';
+import '../protocol/redact.dart';
 
 const String _service = 'Nuvio';
 const String _wellKnownUrl = 'https://api.nuvio.tv/.well-known/nuvio';
