@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:parcel_core/parcel_core.dart';
 import 'package:parcel_desktop/app/router.dart';
@@ -218,6 +219,62 @@ void main() {
       );
 
       expect(find.text('Igual que el anterior'), findsOneWidget);
+    },
+  );
+
+  testWidgets('el sugerido tiene el foco y Enter lo reproduce', (tester) async {
+    final engine = FakePlaybackEngine(
+      mediaDuration: const Duration(minutes: 10),
+    );
+    await openStreams(
+      tester,
+      StreamsArgs(
+        meta: matrix(),
+        preferAddonUrl: streamsAddonUrl,
+        preferBingeGroup: 'uno-1080',
+      ),
+      engine: engine,
+    );
+
+    final focus = FocusManager.instance.primaryFocus;
+    expect(focus, isNotNull);
+    expect(focus!.debugLabel, 'stream-recomendado');
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await pumpIo(tester, ticks: 4);
+    expect(engine.lastSource?.url, 'http://media.example.com/matrix.mkv');
+  });
+
+  testWidgets(
+    'sin bingeGroup, el addon del episodio anterior va primero y sugiere su '
+    'primer stream',
+    (tester) async {
+      world.routes[_secondKey] = {
+        'streams': [
+          {'name': 'Dos 720p', 'url': 'http://media.example.com/dos.mkv'},
+          {'name': 'Dos 1080p', 'url': 'http://media.example.com/dos2.mkv'},
+        ],
+      };
+      final engine = FakePlaybackEngine(
+        mediaDuration: const Duration(minutes: 10),
+      );
+      await openStreams(
+        tester,
+        StreamsArgs(meta: matrix(), preferAddonUrl: secondStreamsAddonUrl),
+        engine: engine,
+      );
+
+      // «Streams dos» (el addon anterior) aparece antes que «Streams uno».
+      expect(
+        tester.getTopLeft(find.text('Streams dos')).dy,
+        lessThan(tester.getTopLeft(find.text('Streams uno').first).dy),
+      );
+      expect(find.text('Del mismo addon'), findsOneWidget);
+      expect(find.text('Igual que el anterior'), findsNothing);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await pumpIo(tester, ticks: 4);
+      expect(engine.lastSource?.url, 'http://media.example.com/dos.mkv');
     },
   );
 

@@ -19,6 +19,7 @@ import '../player/play_item.dart';
 import '../player/player_route.dart';
 import 'stream_info.dart';
 import 'streams_args.dart';
+import 'streams_order.dart';
 
 /// Los streams de un video, agrupados por addon (en el orden de los addons).
 /// Cada grupo muestra su propio estado: buscando, con error o vacío.
@@ -149,6 +150,7 @@ class _Groups extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     final waiting = state.groups.where((g) => g.loading).length;
+    final groups = orderGroups(state.groups, args.preferAddonUrl);
     return _Centered(
       child: ListView(
         children: [
@@ -165,8 +167,7 @@ class _Groups extends ConsumerWidget {
               ),
             ),
           ),
-          for (final group in state.groups)
-            _GroupSection(args: args, group: group),
+          for (final group in groups) _GroupSection(args: args, group: group),
         ],
       ),
     );
@@ -185,10 +186,20 @@ class _GroupSection extends ConsumerWidget {
     final scheme = theme.colorScheme;
     final result = group.result;
 
+    // Con el episodio anterior visto en un addon, ese addon sugiere uno.
+    final samePrevious = args.preferAddonUrl == group.addon.transportUrl;
+    final binge = args.preferBingeGroup;
     final streams = switch (result) {
-      AddonSuccess(:final value) => _ordered(value),
+      AddonSuccess(:final value) when samePrevious => orderStreams(
+        value,
+        binge,
+      ),
+      AddonSuccess(:final value) => value,
       _ => const <AddonStream>[],
     };
+    final recommended = samePrevious && result is AddonSuccess
+        ? recommendedStream(streams, binge)
+        : null;
     final status = switch (result) {
       null => 'Buscando…',
       AddonFailure(:final error) => 'No se pudo cargar · ${failureText(error)}',
@@ -251,50 +262,72 @@ class _GroupSection extends ConsumerWidget {
                   args: args,
                   group: group,
                   stream: stream,
-                  recommended: _isRecommended(stream),
+                  recommended: identical(stream, recommended),
+                  // «Igual que el anterior» solo si coincide el bingeGroup.
+                  sameBingeGroup:
+                      binge != null && stream.behaviorHints.bingeGroup == binge,
                 ),
               ),
         ],
       ),
     );
   }
-
-  bool _isRecommended(AddonStream stream) {
-    final binge = args.preferBingeGroup;
-    return binge != null &&
-        args.preferAddonUrl == group.addon.transportUrl &&
-        stream.behaviorHints.bingeGroup == binge &&
-        stream.isPlayable;
-  }
-
-  /// Los que coinciden con el stream anterior (mismo addon y `bingeGroup`)
-  /// primero; el resto, en el orden del addon.
-  List<AddonStream> _ordered(List<AddonStream> streams) {
-    final first = [
-      for (final s in streams)
-        if (_isRecommended(s)) s,
-    ];
-    if (first.isEmpty) return streams;
-    return [
-      ...first,
-      for (final s in streams)
-        if (!first.contains(s)) s,
-    ];
-  }
 }
 
-class _StreamTile extends ConsumerWidget {
+class _StreamTile extends ConsumerStatefulWidget {
   const _StreamTile({
     required this.args,
     required this.group,
     required this.stream,
     required this.recommended,
+    required this.sameBingeGroup,
   });
 
   final StreamsArgs args;
   final StreamGroup group;
   final AddonStream stream;
+
+  /// Es el que se sugiere: tiene el foco, así Enter lo reproduce.
   final bool recommended;
+  final bool sameBingeGroup;
+
+  @override
+  ConsumerState<_StreamTile> createState() => _StreamTileState();
+}
+
+class _StreamTileState extends ConsumerState<_StreamTile> {
+  final FocusNode _focus = FocusNode(debugLabel: 'stream-recomendado');
+
+  StreamsArgs get args => widget.args;
+  StreamGroup get group => widget.group;
+  AddonStream get stream => widget.stream;
+  bool get recommended => widget.recommended;
+
+  @override
+  void initState() {
+    super.initState();
+    if (recommended) _focusSoon();
+  }
+
+  @override
+  void didUpdateWidget(_StreamTile oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (recommended && !oldWidget.recommended) _focusSoon();
+  }
+
+  @override
+  void dispose() {
+    _focus.dispose();
+    super.dispose();
+  }
+
+  /// El sugerido aparece cuando responde el addon, con la pantalla ya
+  /// enfocada: `autofocus` no alcanza, hay que pedir el foco.
+  void _focusSoon() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _focus.requestFocus();
+    });
+  }
 
   Future<void> _open(BuildContext context, WidgetRef ref) async {
     final block = blockOf(stream);
@@ -330,7 +363,7 @@ class _StreamTile extends ConsumerWidget {
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final block = blockOf(stream);
@@ -359,7 +392,7 @@ class _StreamTile extends ConsumerWidget {
         ),
       ),
       child: InkWell(
-        autofocus: recommended,
+        focusNode: _focus,
         onTap: canOpen ? () => unawaited(_open(context, ref)) : null,
         child: Opacity(
           opacity: block == null ? 1 : 0.55,
@@ -398,8 +431,10 @@ class _StreamTile extends ConsumerWidget {
                           runSpacing: Spacing.xs,
                           children: [
                             if (recommended)
-                              const _Chip(
-                                label: 'Igual que el anterior',
+                              _Chip(
+                                label: widget.sameBingeGroup
+                                    ? 'Igual que el anterior'
+                                    : 'Del mismo addon',
                                 icon: Icons.star_outline,
                                 highlighted: true,
                               ),
