@@ -26,7 +26,7 @@ Desde la raíz del repo:
 ```powershell
 flutter pub get        # instala las dependencias del workspace
 flutter analyze        # análisis estático de los dos paquetes
-./tool/test.ps1        # tests de parcel_core y parcel_desktop
+powershell -NoProfile -ExecutionPolicy Bypass -File tool/test.ps1   # tests de parcel_core y parcel_desktop
 ```
 
 Desde `app_desktop/`:
