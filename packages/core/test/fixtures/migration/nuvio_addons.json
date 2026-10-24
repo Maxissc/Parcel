@@ -1,0 +1,6 @@
+[
+  {"url": "https://v3-cinemeta.strem.io/manifest.json", "name": "Cinemeta", "enabled": true, "sort_order": 0, "profile_id": 1},
+  {"url": "https://torrent.example.com/fake-user-token/manifest.json", "name": "Torrent", "enabled": false, "sort_order": 1, "profile_id": 1},
+  {"url": "https://opensubtitles-v3.strem.io", "name": null, "enabled": true, "sort_order": 0, "profile_id": 2},
+  {"name": "Sin url", "enabled": true, "sort_order": 2, "profile_id": 1}
+]

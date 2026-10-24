@@ -7,6 +7,7 @@ export 'src/defaults/default_addons.dart';
 export 'src/migration/account_exception.dart';
 export 'src/migration/pasted_addons_parser.dart';
 export 'src/migration/redact.dart';
+export 'src/migration/stremio_account_client.dart';
 export 'src/models/addon_manifest.dart';
 export 'src/models/addon_stream.dart';
 export 'src/models/installed_addon.dart';
