@@ -137,7 +137,9 @@ void main() {
           resources: [
             'catalog',
             {'name': 'meta', 'types': 'movie', 'idPrefixes': 5},
-            {'types': ['movie']},
+            {
+              'types': ['movie'],
+            },
             42,
             null,
           ],
@@ -182,7 +184,11 @@ void main() {
               'extra': [
                 {'name': 'search', 'isRequired': true},
                 {'isRequired': true},
-                {'name': 'genre', 'options': ['x', 3], 'optionsLimit': '2'},
+                {
+                  'name': 'genre',
+                  'options': ['x', 3],
+                  'optionsLimit': '2',
+                },
                 7,
               ],
             },
@@ -201,11 +207,17 @@ void main() {
 
     test('rechaza manifests sin id, sin name o sin recursos válidos', () {
       expect(
-        () => AddonManifest.fromJson({'name': 'x', 'resources': ['stream']}),
+        () => AddonManifest.fromJson({
+          'name': 'x',
+          'resources': ['stream'],
+        }),
         throwsFormatException,
       );
       expect(
-        () => AddonManifest.fromJson({'id': 'x', 'resources': ['stream']}),
+        () => AddonManifest.fromJson({
+          'id': 'x',
+          'resources': ['stream'],
+        }),
         throwsFormatException,
       );
       expect(

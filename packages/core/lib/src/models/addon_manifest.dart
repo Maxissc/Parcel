@@ -183,9 +183,7 @@ class AddonManifest {
       if (!types.contains(type)) continue;
       if (resource == 'catalog') return true;
       final prefixes = r.full ? r.idPrefixes : idPrefixes;
-      if (prefixes == null ||
-          prefixes.isEmpty ||
-          prefixes.any(id.startsWith)) {
+      if (prefixes == null || prefixes.isEmpty || prefixes.any(id.startsWith)) {
         return true;
       }
     }
