@@ -46,8 +46,10 @@ class SourceCandidate {
 
 /// Los streams reproducibles de [groups], del mejor al peor (ver
 /// `rankStreams`). Con [preferBingeGroup] (el episodio anterior) pasan
-/// adelante los que tienen el mismo `bingeGroup`, y si hay [preferAddonUrl],
-/// solo los de ese addon.
+/// adelante los que tienen el mismo `bingeGroup` (y, si hay [preferAddonUrl],
+/// los de ese addon). Sin `bingeGroup`, [preferAddonUrl] adelanta los listos
+/// del mismo addon. En los dos casos no se descarta nada: lo demás queda como
+/// alternativa.
 List<SourceCandidate> rankCandidates(
   List<StreamGroup> groups, {
   QualityPreference quality = QualityPreference.p1080,
@@ -72,7 +74,15 @@ List<SourceCandidate> rankCandidates(
   final ranked = [
     for (final s in rankStreams(all, quality: quality)) owner[s]!,
   ];
-  if (preferBingeGroup == null) return ranked;
+  if (preferBingeGroup == null) {
+    if (preferAddonUrl == null) return ranked;
+    bool sameReadyAddon(SourceCandidate c) =>
+        c.isReady && c.addonUrl == preferAddonUrl;
+    return [
+      ...ranked.where(sameReadyAddon),
+      ...ranked.where((c) => !sameReadyAddon(c)),
+    ];
+  }
   bool same(SourceCandidate c) =>
       c.stream.behaviorHints.bingeGroup == preferBingeGroup &&
       (preferAddonUrl == null || c.addonUrl == preferAddonUrl);

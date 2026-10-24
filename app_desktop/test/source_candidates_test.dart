@@ -71,6 +71,28 @@ void main() {
     expect(ranked.first.stream.name, 'A 1080p');
   });
 
+  test('sin bingeGroup, para el episodio siguiente van primero los del '
+      'mismo addon (listos antes que el resto)', () {
+    final groups = [
+      _group('https://b.example.com/manifest.json', 'B', [
+        _s('B 2160p [RD+]'),
+      ]),
+      _group('https://a.example.com/manifest.json', 'A', [
+        _s('A 1080p [RD+]'),
+        _s('A 720p'),
+      ]),
+    ];
+    final ranked = rankCandidates(
+      groups,
+      preferAddonUrl: 'https://a.example.com/manifest.json',
+    );
+    expect(ranked.first.addonName, 'A');
+    expect(ranked.first.stream.name, 'A 1080p [RD+]');
+    expect(ranked.map((c) => c.addonName).toSet(), {'A', 'B'});
+    // El de otro addon no se descarta: queda como alternativa.
+    expect(ranked, hasLength(3));
+  });
+
   test('los grupos que fallan o todavía no respondieron no aportan', () {
     final groups = [
       StreamGroup(
@@ -100,6 +122,10 @@ void main() {
         _s('x 1080p'),
       ]),
     ]);
-    expect(c.map((e) => e.isReady), [true, true, false]);
+    expect(c.where((e) => e.isReady), hasLength(2));
+    expect(
+      c.where((e) => !e.isReady).single.stream.name,
+      'x 1080p [RD download]',
+    );
   });
 }

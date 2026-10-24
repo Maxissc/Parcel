@@ -8,7 +8,7 @@ const _mib = 1024 * 1024;
 
 void main() {
   group('cacheProfileForRam', () {
-    test('menos de 6 GB: caché chica', () {
+    test('menos de 5,5 GiB (equipos de 6 GB): caché chica', () {
       final p = cacheProfileForRam(4 * _gib);
       expect(p.level, CacheLevel.low);
       expect(p.maxBytes, 150 * _mib);
@@ -16,8 +16,13 @@ void main() {
       expect(p.readaheadSeconds, 20);
     });
 
-    test('de 6 a 12 GB (los dos incluidos): caché media', () {
-      for (final ram in [6 * _gib, 8 * _gib, 12 * _gib]) {
+    test('de 5,5 a 11,5 GiB (los dos incluidos): caché media', () {
+      for (final ram in [
+        (_gib * 11) ~/ 2,
+        (_gib * 59) ~/ 10,
+        8 * _gib,
+        (_gib * 23) ~/ 2,
+      ]) {
         final p = cacheProfileForRam(ram);
         expect(p.level, CacheLevel.medium, reason: '$ram');
         expect(p.maxBytes, 300 * _mib);
@@ -25,15 +30,19 @@ void main() {
       }
     });
 
-    test('más de 12 GB: caché grande', () {
-      final p = cacheProfileForRam(32 * _gib);
+    test('más de 11,5 GiB (equipos de 12 GB): caché grande', () {
+      final p = cacheProfileForRam((_gib * 118) ~/ 10);
       expect(p.level, CacheLevel.high);
       expect(p.maxBytes, 600 * _mib);
       expect(p.maxBackBytes, 250 * _mib);
     });
 
-    test('justo debajo de 6 GB sigue siendo chica', () {
-      expect(cacheProfileForRam(6 * _gib - 1).level, CacheLevel.low);
+    test('justo debajo de 5,5 GiB sigue siendo chica', () {
+      expect(cacheProfileForRam((_gib * 11) ~/ 2 - 1).level, CacheLevel.low);
+    });
+
+    test('justo arriba de 11,5 GiB ya es grande', () {
+      expect(cacheProfileForRam((_gib * 23) ~/ 2 + 1).level, CacheLevel.high);
     });
 
     test('siempre pide caché activa, 20 s adelante y caché con búsqueda', () {

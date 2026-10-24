@@ -66,11 +66,13 @@ class CacheProfile {
   );
 }
 
-/// El perfil que corresponde a [totalRamBytes]: menos de 6 GB, chica; de 6 a
-/// 12 GB (inclusive), media; más de 12 GB, grande.
+/// El perfil que corresponde a [totalRamBytes]. Los cortes están un poco por
+/// debajo de 6 y 12 GB porque Windows informa menos que la RAM instalada (parte
+/// queda reservada para el hardware): menos de 5,5 GiB, chica; de 5,5 a 11,5
+/// GiB (inclusive), media; más, grande.
 CacheProfile cacheProfileForRam(int totalRamBytes) {
-  if (totalRamBytes < 6 * _gib) return CacheProfile.low;
-  if (totalRamBytes <= 12 * _gib) return CacheProfile.medium;
+  if (totalRamBytes < (_gib * 11) ~/ 2) return CacheProfile.low;
+  if (totalRamBytes <= (_gib * 23) ~/ 2) return CacheProfile.medium;
   return CacheProfile.high;
 }
 
