@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:parcel_core/parcel_core.dart' show Meta;
 
 import '../data/providers.dart';
 import '../features/addons/addons_screen.dart';
+import '../features/detail/detail_screen.dart';
 import '../features/home/home_screen.dart';
 import '../features/onboarding/onboarding_screen.dart';
 import '../features/player/player_route.dart';
@@ -71,6 +73,14 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: Routes.player,
         builder: (context, state) =>
             PlayerRoute(args: state.extra! as PlayerArgs),
+      ),
+      GoRoute(
+        path: Routes.detail,
+        builder: (context, state) => DetailScreen(
+          type: state.pathParameters['type']!,
+          id: state.pathParameters['id']!,
+          hint: state.extra is Meta ? state.extra! as Meta : null,
+        ),
       ),
       GoRoute(
         path: Routes.streams,
