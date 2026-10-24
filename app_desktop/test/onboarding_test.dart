@@ -50,7 +50,7 @@ void main() {
       await pumpUntil(tester, find.byKey(const Key('go-home')));
 
       expect(find.text('2 instalados'), findsOneWidget);
-      expect(savedAddonNames(dir), ['Cinemeta', 'OpenSubtitles v3']);
+      await expectSavedAddons(tester, dir, ['Cinemeta', 'OpenSubtitles v3']);
     });
   });
 
@@ -94,7 +94,7 @@ void main() {
         findsOneWidget,
       );
       expect(find.textContaining('token-secreto'), findsNothing);
-      expect(savedAddonNames(dir), ['Cinemeta', 'OpenSubtitles v3']);
+      await expectSavedAddons(tester, dir, ['Cinemeta', 'OpenSubtitles v3']);
 
       // Reintentar los que fallaron: ahora el addon responde.
       routes[_brokenUrl] = manifestJson('org.example.roto', 'Roto');
@@ -102,7 +102,11 @@ void main() {
       await pumpUntil(tester, find.text('3 instalados'));
       expect(find.text('0 fallaron'), findsOneWidget);
       expect(find.byKey(const Key('retry-failed')), findsNothing);
-      expect(savedAddonNames(dir), ['Cinemeta', 'OpenSubtitles v3', 'Roto']);
+      await expectSavedAddons(tester, dir, [
+        'Cinemeta',
+        'OpenSubtitles v3',
+        'Roto',
+      ]);
 
       // «Ir al inicio» recuerda que el asistente se completó y abre la app.
       await _tap(tester, find.byKey(const Key('go-home')));

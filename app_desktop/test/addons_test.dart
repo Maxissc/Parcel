@@ -106,7 +106,7 @@ void main() {
 
     // Cancelar no quita nada.
     await _tap(tester, find.text('Cancelar'));
-    expect(savedAddonNames(dir), hasLength(3));
+    await expectSavedAddons(tester, dir, hasLength(3));
 
     await _tap(tester, find.byKey(const Key('menu-OpenSubtitles v3')));
     await _tap(tester, find.text('Quitar'));
@@ -114,15 +114,20 @@ void main() {
     await pumpIo(tester);
 
     expect(find.text('Quitaste OpenSubtitles v3.'), findsOneWidget);
+    await expectSavedAddons(tester, dir, ['Cinemeta', 'Torrent']);
     expect(_visibleOrder(tester), ['Cinemeta', 'Torrent']);
-    expect(savedAddonNames(dir), ['Cinemeta', 'Torrent']);
 
     await tester.pumpAndSettle(); // que termine de entrar el aviso
     await _tap(tester, find.text('Deshacer'));
     await pumpIo(tester, ticks: 30); // instalar y mover son dos escrituras
 
+    await expectSavedAddons(tester, dir, [
+      'Cinemeta',
+      'OpenSubtitles v3',
+      'Torrent',
+    ]);
+
     expect(_visibleOrder(tester), ['Cinemeta', 'OpenSubtitles v3', 'Torrent']);
-    expect(savedAddonNames(dir), ['Cinemeta', 'OpenSubtitles v3', 'Torrent']);
   });
 
   testWidgets('arrastrar cambia el orden y se guarda', (tester) async {
@@ -137,8 +142,13 @@ void main() {
     await tester.pump(const Duration(milliseconds: 500));
     await pumpIo(tester);
 
+    await expectSavedAddons(tester, dir, [
+      'Torrent',
+      'Cinemeta',
+      'OpenSubtitles v3',
+    ]);
+
     expect(_visibleOrder(tester), ['Torrent', 'Cinemeta', 'OpenSubtitles v3']);
-    expect(savedAddonNames(dir), ['Torrent', 'Cinemeta', 'OpenSubtitles v3']);
   });
 
   testWidgets('Subir y Bajar del menú también reordenan y se guardan', (
@@ -151,13 +161,21 @@ void main() {
     expect(find.text('Subir'), findsNothing); // ya es el primero
     await _tap(tester, find.text('Bajar'));
     await pumpIo(tester);
-    expect(savedAddonNames(dir), ['OpenSubtitles v3', 'Cinemeta', 'Torrent']);
+    await expectSavedAddons(tester, dir, [
+      'OpenSubtitles v3',
+      'Cinemeta',
+      'Torrent',
+    ]);
 
     await _tap(tester, find.byKey(const Key('menu-Torrent')));
     expect(find.text('Bajar'), findsNothing); // ya es el último
     await _tap(tester, find.text('Subir'));
     await pumpIo(tester);
-    expect(savedAddonNames(dir), ['OpenSubtitles v3', 'Torrent', 'Cinemeta']);
+    await expectSavedAddons(tester, dir, [
+      'OpenSubtitles v3',
+      'Torrent',
+      'Cinemeta',
+    ]);
   });
 
   group('agregar por URL', () {
@@ -243,7 +261,7 @@ void main() {
       await pumpUntil(tester, find.text('Agregaste Nuevo.'));
       await pumpIo(tester);
 
-      expect(savedAddonNames(dir), ['Cinemeta', 'Nuevo']);
+      await expectSavedAddons(tester, dir, ['Cinemeta', 'Nuevo']);
       expect(find.byKey(const Key('add-addon-url')), findsNothing);
     });
   });

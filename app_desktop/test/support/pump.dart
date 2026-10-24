@@ -12,6 +12,28 @@ import 'package:parcel_desktop/data/platform.dart';
 
 import 'test_env.dart';
 
+/// Espera a que `addons.json` en [dir] cumpla [matcher] (hasta [timeout] de
+/// tiempo real) y recién después lo verifica. Con un número fijo de ticks, un
+/// disco lento (el runner de CI) hacía fallar la verificación.
+Future<void> expectSavedAddons(
+  WidgetTester tester,
+  Directory dir,
+  Object matcher, {
+  Duration timeout = const Duration(seconds: 5),
+}) async {
+  final wrapped = wrapMatcher(matcher);
+  final deadline = DateTime.now().add(timeout);
+  while (!wrapped.matches(savedAddonNames(dir), {}) &&
+      DateTime.now().isBefore(deadline)) {
+    await tester.pump(const Duration(milliseconds: 50));
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 20)),
+    );
+  }
+  await tester.pump();
+  expect(savedAddonNames(dir), matcher);
+}
+
 /// Espera hasta que aparezca [finder], dejando correr el disco y la red falsa
 /// de verdad (los tests de widgets corren con reloj falso, y el disco no).
 Future<void> pumpUntil(
