@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "service": "nuvio",
+  "backend_url": "https://api.nuvio.tv",
+  "publishable_key": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmYWtlIjp0cnVlfQ.ZmFrZS1zaWduYXR1cmU",
+  "capabilities": {"email_password_auth": true, "tv_login": true}
+}
