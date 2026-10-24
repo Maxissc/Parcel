@@ -77,7 +77,7 @@ class StreamSignals {
 }
 
 final RegExp _p = RegExp(
-  r'(?<![0-9])(2160|1440|1080|720|576|480)\s*p\b',
+  r'(?<![0-9])(2160|1440|1080|720|576|480)\s*p(?![a-z])',
   caseSensitive: false,
 );
 final RegExp _dimensions = RegExp(r'\d{3,4}x(2160|1440|1080|720|576|480)\b');
@@ -103,16 +103,16 @@ final RegExp _uncached = RegExp(
   caseSensitive: false,
 );
 final RegExp _cachedWord = RegExp(r'\bcached\b', caseSensitive: false);
-final RegExp _downloadWord = RegExp(r'\bdownload\b', caseSensitive: false);
 
+// La palabra «download» suelta no cuenta: puede ser parte del nombre del
+// release. Solo `[XX download]` o la flecha `⬇` (con o sin selector de emoji).
 bool? _cached(String text) {
   if (_cachedTag.hasMatch(text)) return true;
   if (_downloadTag.hasMatch(text)) return false;
   if (text.contains('⚡')) return true;
-  if (text.contains('⏳')) return false;
+  if (text.contains('⏳') || text.contains('⬇')) return false;
   if (_uncached.hasMatch(text)) return false;
   if (_cachedWord.hasMatch(text)) return true;
-  if (_downloadWord.hasMatch(text)) return false;
   return null;
 }
 
@@ -123,18 +123,19 @@ final RegExp _dolbyVision = RegExp(
 );
 
 // CAM / HDCAM / CAMRip, TS / HDTS / TELESYNC, SCREENER / SCR / DVDSCR. Un «TS»
-// pegado a un punto al final (`pelicula.ts`) es una extensión, no una copia.
+// pegado a un punto al final (`pelicula.ts`) es una extensión, no una copia; y
+// `-TS` (grupo de release) o «TS audio» tampoco.
 final RegExp _cam = RegExp(
   r'\b(hd)?cam(rip)?\b'
   r'|\bhdts\b'
-  r'|(?<!\.)\bts\b'
+  r'|(?<![\w.-])ts(?![\w-])(?!\s+audio\b)'
   r'|\.ts\.'
   r'|\btele-?sync\b'
   r'|\b(dvd)?scr(eener)?\b',
   caseSensitive: false,
 );
 
-const String _number = r'(\d+(?:[.,]\d+)?)';
+const String _number = r'(\d+(?:,\d{3})*(?:[.,]\d+)?)';
 const String _unit = r'(TB|GB|MB|GiB|MiB|TiB)';
 final RegExp _sizeWithEmoji = RegExp(
   '💾\\s*$_number\\s*$_unit',
@@ -148,9 +149,20 @@ final RegExp _sizeAny = RegExp(
 int? _size(String text) {
   final m = _sizeWithEmoji.firstMatch(text) ?? _sizeAny.firstMatch(text);
   if (m == null) return null;
-  final value = double.tryParse(m.group(1)!.replaceAll(',', '.'));
-  if (value == null) return null;
+  final raw = m.group(1)!;
   final unit = m.group(2)!.toLowerCase();
+  // «1,234 MB» y «1,234.5 MB» llevan coma de miles; «1,5 GB» es decimal.
+  final commas = ','.allMatches(raw).length;
+  final thousands =
+      commas > 1 ||
+      (commas == 1 && raw.contains('.')) ||
+      (commas == 1 &&
+          (unit == 'mb' || unit == 'mib') &&
+          RegExp(r'^\d{1,3},\d{3}$').hasMatch(raw));
+  final value = double.tryParse(
+    thousands ? raw.replaceAll(',', '') : raw.replaceAll(',', '.'),
+  );
+  if (value == null) return null;
   final factor = switch (unit) {
     'tb' || 'tib' => 1024.0 * 1024 * 1024 * 1024,
     'gb' || 'gib' => 1024.0 * 1024 * 1024,

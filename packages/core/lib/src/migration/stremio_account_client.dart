@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import '../models/json_helpers.dart';
 import 'account_exception.dart';
 import 'account_http.dart';
+import '../protocol/abortable_http.dart';
 import '../protocol/redact.dart';
 
 const String _service = 'Stremio';
@@ -77,7 +78,12 @@ class StremioAccountClient {
   /// Pide un código de vinculación nuevo.
   Future<LinkCode> createLinkCode() async {
     final response = await sendAccountRequest(
-      () => _http.get(Uri.parse('$_linkBase/api/v2/create?type=Create')),
+      (abort) => abortableAccountCall(
+        _http,
+        'GET',
+        Uri.parse('$_linkBase/api/v2/create?type=Create'),
+        abort,
+      ),
       service: _service,
       timeout: requestTimeout,
     );
@@ -220,13 +226,17 @@ class StremioAccountClient {
   /// sesión queda abierta del lado del servidor y no pasa nada más.
   Future<void> logout(String authKey) async {
     try {
-      await _http
-          .post(
-            Uri.parse('$_apiBase/api/logout'),
-            headers: _jsonHeaders,
-            body: jsonEncode({'type': 'Logout', 'authKey': authKey}),
-          )
-          .timeout(requestTimeout);
+      await runWithTimeoutAbort(
+        requestTimeout,
+        (abort) => abortableAccountCall(
+          _http,
+          'POST',
+          Uri.parse('$_apiBase/api/logout'),
+          abort,
+          headers: _jsonHeaders,
+          body: jsonEncode({'type': 'Logout', 'authKey': authKey}),
+        ),
+      );
     } on Object {
       // Falla silenciosa a propósito.
     }
@@ -239,10 +249,13 @@ class StremioAccountClient {
   /// `authKey` si el usuario ya aprobó; `null` si sigue pendiente (error 101).
   Future<String?> _readLink(String code) async {
     final response = await sendAccountRequest(
-      () => _http.get(
+      (abort) => abortableAccountCall(
+        _http,
+        'GET',
         Uri.parse(
           '$_linkBase/api/v2/read?type=Read&code=${Uri.encodeQueryComponent(code)}',
         ),
+        abort,
       ),
       service: _service,
       timeout: requestTimeout,
@@ -264,8 +277,11 @@ class StremioAccountClient {
     Map<String, Object?> payload,
   ) async {
     final response = await sendAccountRequest(
-      () => _http.post(
+      (abort) => abortableAccountCall(
+        _http,
+        'POST',
         Uri.parse('$_apiBase/api/$endpoint'),
+        abort,
         headers: _jsonHeaders,
         body: jsonEncode(payload),
       ),

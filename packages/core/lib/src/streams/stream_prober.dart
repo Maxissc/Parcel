@@ -136,7 +136,12 @@ class StreamProber {
   ) async {
     var uri = start;
     var headers = {...proxyHeaders, 'Range': 'bytes=0-0'};
+    var aborted = false;
+    abort.then((_) => aborted = true);
     for (var hop = 0; hop <= maxRedirects; hop++) {
+      // Un `abort` completado entre saltos corta antes de pedir el próximo.
+      await Future<void>.value();
+      if (aborted) throw http.RequestAbortedException(uri);
       final request = http.AbortableRequest('GET', uri, abortTrigger: abort)
         ..followRedirects = false
         ..headers.addAll(headers);
@@ -154,9 +159,11 @@ class StreamProber {
           );
         }
         if (next.host != uri.host || next.port != uri.port) {
+          // A otro host solo viajan el User-Agent y el Range: el resto de los
+          // headers del proxy (tokens, Referer...) no son para él.
           headers = {
             for (final e in headers.entries)
-              if (!_sensitive.contains(e.key.toLowerCase())) e.key: e.value,
+              if (_crossHost.contains(e.key.toLowerCase())) e.key: e.value,
           };
         }
         uri = next;
@@ -212,12 +219,9 @@ class StreamProber {
 
 const Set<int> _redirects = {301, 302, 303, 307, 308};
 
-/// Headers que no se reenvían a otro host al seguir un redirect.
-const Set<String> _sensitive = {
-  'authorization',
-  'cookie',
-  'proxy-authorization',
-};
+/// Únicos headers que se reenvían a otro host al seguir un redirect (así
+/// tampoco viajan `authorization`, `cookie` ni `proxy-authorization`).
+const Set<String> _crossHost = {'user-agent', 'range'};
 
 Uri? _redirectTarget(Uri from, String? location) {
   if (location == null || location.trim().isEmpty) return null;
@@ -233,10 +237,18 @@ Uri? _redirectTarget(Uri from, String? location) {
 bool _isVideoType(String? contentType) {
   if (contentType == null || contentType.trim().isEmpty) return true;
   final type = contentType.split(';').first.trim().toLowerCase();
-  return type.startsWith('video/') ||
-      type == 'application/octet-stream' ||
-      type == 'application/x-matroska';
+  // Lista negra: los servidores de debrid mandan cualquier cosa
+  // (`force-download`, `binary/octet-stream`...). Solo se descarta lo que
+  // seguro no es un video.
+  return !(type.startsWith('text/') || _notVideoTypes.contains(type));
 }
+
+const Set<String> _notVideoTypes = {
+  'application/json',
+  'application/xml',
+  'application/javascript',
+  'application/x-javascript',
+};
 
 bool _isHlsType(String? contentType) {
   if (contentType == null) return false;

@@ -88,7 +88,13 @@ abstract final class SubtitleParser {
 }
 
 final RegExp _lineBreak = RegExp(r'\r\n|\r|\n');
-final RegExp _timing = RegExp(r'^\s*(\S+)\s*-->\s*(\S+)');
+// Línea de tiempo completa: `HH:MM:SS,mmm --> HH:MM:SS,mmm`, con horas
+// opcionales (VTT) y settings opcionales al final. Una línea de texto que solo
+// contiene `-->` no calza.
+const String _stamp = r'(?:\d+:)?\d{1,2}:\d{1,2}(?:[,.]\d{1,3})?';
+final RegExp _timing = RegExp(
+  '^\\s*($_stamp)\\s*-->\\s*($_stamp)(?:\\s+\\S.*)?\\s*\$',
+);
 final RegExp _digits = RegExp(r'^\s*\d+\s*$');
 final RegExp _time = RegExp(
   r'^(?:(\d+):)?(\d{1,2}):(\d{1,2})(?:[,.](\d{1,3}))?$',

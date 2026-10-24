@@ -64,6 +64,14 @@ void main() {
       expect(_estimate(7200 * ratio * 1.012), SubtitleAlignment.unlikely);
     });
 
+    test('en un video corto, pasarse menos de 30 s no es fpsMismatch', () {
+      // 500 s de video y el último cue en 520 s: es el margen normal.
+      expect(
+        _estimate(520, const Duration(seconds: 500)),
+        SubtitleAlignment.likely,
+      );
+    });
+
     test('anda también en una duración corta (un episodio de 25 min)', () {
       const episode = Duration(minutes: 25);
       expect(

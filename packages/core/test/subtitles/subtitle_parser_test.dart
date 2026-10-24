@@ -20,6 +20,16 @@ void main() {
       expect(cues[1].text, 'Segunda línea\ny tercera.');
     });
 
+    test('una línea de texto con --> no corta el cue', () {
+      final cues = SubtitleParser.parse(
+        '1\n00:00:01,000 --> 00:00:03,000\nA --> B\nsigue acá\n\n'
+        '2\n00:00:04,000 --> 00:00:05,000\nDos\n',
+      );
+      expect(cues, hasLength(2));
+      expect(cues[0].text, 'A --> B\nsigue acá');
+      expect(cues[1].text, 'Dos');
+    });
+
     test('tolera BOM y CRLF', () {
       final cues = SubtitleParser.parse(
         '﻿1\r\n00:00:01,000 --> 00:00:02,000\r\nUno\r\n\r\n'

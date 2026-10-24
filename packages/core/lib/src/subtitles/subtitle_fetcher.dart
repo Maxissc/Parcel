@@ -128,6 +128,13 @@ class SubtitleFetcher {
   /// (más de 1 cada 1000), como Latin-1 (con las comillas y símbolos de
   /// Windows-1252). Saca el BOM.
   static String decode(List<int> bytes) {
+    if (bytes.length >= 2) {
+      final littleEndian = bytes[0] == 0xFF && bytes[1] == 0xFE;
+      final bigEndian = bytes[0] == 0xFE && bytes[1] == 0xFF;
+      if (littleEndian || bigEndian) {
+        return _decodeUtf16(bytes, littleEndian);
+      }
+    }
     final utf8Text = utf8.decode(bytes, allowMalformed: true);
     var invalid = 0;
     for (final unit in utf8Text.runes) {
@@ -138,6 +145,19 @@ class SubtitleFetcher {
         : utf8Text;
     return text.startsWith('﻿') ? text.substring(1) : text;
   }
+}
+
+/// UTF-16 con BOM (`FF FE` es little endian, `FE FF` big endian). Saca el BOM.
+String _decodeUtf16(List<int> bytes, bool littleEndian) {
+  final units = <int>[];
+  for (var i = 2; i + 1 < bytes.length; i += 2) {
+    units.add(
+      littleEndian
+          ? bytes[i] | (bytes[i + 1] << 8)
+          : (bytes[i] << 8) | bytes[i + 1],
+    );
+  }
+  return String.fromCharCodes(units);
 }
 
 /// Latin-1 con los símbolos de Windows-1252 en 0x80-0x9F (`’`, `“`, `…`).

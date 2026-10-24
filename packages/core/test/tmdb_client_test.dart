@@ -195,9 +195,35 @@ void main() {
         apiKey: _v3Key,
       );
       await tmdb.credits(1396, 'tv');
-      expect(seen.url.path, '/3/tv/1396/credits');
+      expect(seen.url.path, '/3/tv/1396/aggregate_credits');
       await tmdb.credits(1396, 'series');
-      expect(seen.url.path, '/3/tv/1396/credits');
+      expect(seen.url.path, '/3/tv/1396/aggregate_credits');
+    });
+
+    test('en series el personaje sale de roles[0].character', () async {
+      final tmdb = TmdbClient(
+        MockClient(
+          (_) async => _json({
+            'cast': [
+              {
+                'name': 'Bryan Cranston',
+                'profile_path': '/b.jpg',
+                'order': 0,
+                'roles': [
+                  {'character': 'Walter White', 'episode_count': 62},
+                  {'character': 'Otro', 'episode_count': 1},
+                ],
+              },
+              {'name': 'Sin Roles', 'order': 1, 'roles': []},
+            ],
+          }),
+        ),
+        apiKey: _v3Key,
+      );
+      final cast = await tmdb.credits(1396, 'tv');
+      expect(cast.first.name, 'Bryan Cranston');
+      expect(cast.first.character, 'Walter White');
+      expect(cast.last.character, isNull);
     });
 
     test('limit corta la lista', () async {

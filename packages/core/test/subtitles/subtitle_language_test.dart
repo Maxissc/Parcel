@@ -67,17 +67,43 @@ void main() {
         _detect('spa', label: 'Español Latinoamérica'),
         SubtitleLanguage.latam,
       );
-      expect(_detect('spa', label: 'Spanish (LA)'), SubtitleLanguage.latam);
       expect(
         _detect('spa', label: 'Español - América Latina'),
         SubtitleLanguage.latam,
       );
     });
 
-    test('el título también', () {
+    test('«LA» suelto ya no cuenta, ni en el label ni en el título', () {
+      expect(_detect('spa', label: 'Spanish (LA)'), SubtitleLanguage.spanish);
+      expect(
+        _detect('spa', title: 'Escape From LA 1996 1080p'),
+        SubtitleLanguage.spanish,
+      );
+    });
+
+    test('el título del release no refina: solo el label', () {
       expect(
         _detect('spa', title: 'Película.2023.1080p.LATINO.srt'),
-        SubtitleLanguage.latam,
+        SubtitleLanguage.spanish,
+      );
+      expect(
+        _detect('spa', title: 'Movie 2023 Dual Latino'),
+        SubtitleLanguage.spanish,
+      );
+    });
+
+    test('un código conocido manda sobre las palabras', () {
+      expect(
+        _detect('eng', title: 'Movie.MULTI.Spanish.1080p'),
+        SubtitleLanguage.english,
+      );
+      expect(
+        _detect('por', label: 'Portuguese (BR) from Spanish'),
+        SubtitleLanguage.other,
+      );
+      expect(
+        _detect('pob', label: 'Portuguese (BR) from Spanish'),
+        SubtitleLanguage.other,
       );
     });
 
@@ -86,8 +112,8 @@ void main() {
       expect(_detect('spa', label: 'Castellano'), SubtitleLanguage.spanish);
     });
 
-    test('«LA» solo cuenta si el subtítulo es en español', () {
-      expect(_detect('eng', label: 'English (LA)'), SubtitleLanguage.english);
+    test('las marcas de LatAm solo cuentan si el subtítulo es en español', () {
+      expect(_detect('eng', label: 'English (LatAm)'), SubtitleLanguage.english);
       expect(
         _detect('eng', label: 'Los Angeles Cut'),
         SubtitleLanguage.english,

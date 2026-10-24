@@ -39,6 +39,11 @@ void main() {
       expect(res('Movie 1920x1080 x264'), 1080);
     });
 
+    test('lee 1080p60 y 2160p60', () {
+      expect(res('Movie.1080p60.WEB'), 1080);
+      expect(res('Movie 2160p60 HDR'), 2160);
+    });
+
     test('no confunde números sueltos con una resolución', () {
       expect(res('Movie 2019 x264 1080 minutos'), isNull);
       expect(res('Sin calidad'), isNull);
@@ -63,9 +68,19 @@ void main() {
     test('[XX download], download y ⏳ son no cacheados', () {
       expect(cached('Torrentio\n[RD download] 4k'), isFalse);
       expect(cached('[AD download] Torrentio 1080p'), isFalse);
-      expect(cached('Movie 1080p download'), isFalse);
       expect(cached('⏳ Movie 1080p'), isFalse);
       expect(cached('Movie uncached'), isFalse);
+    });
+
+    test('⬇️ y [RD⬇️] son no cacheados', () {
+      expect(cached('[RD⬇️] Torrentio\n1080p'), isFalse);
+      expect(cached('Torrentio ⬇️ 1080p'), isFalse);
+      expect(cached('[AD download] Torrentio 1080p'), isFalse);
+    });
+
+    test('«Download» suelto en el nombre del release no dice nada', () {
+      expect(cached('Movie 1080p download'), isNull);
+      expect(cached('Download.Movie.2023.1080p'), isNull);
     });
 
     test('sin señales es null (no se sabe)', () {
@@ -103,6 +118,13 @@ void main() {
       }
     });
 
+    test('TS aislado cuenta; el grupo -TS y «TS audio» no', () {
+      expect(StreamSignals.fromText('Movie 2023 TS x264').isCam, isTrue);
+      expect(StreamSignals.fromText('Movie.2023.BluRay-TS').isCam, isFalse);
+      expect(StreamSignals.fromText('Movie 2023 1080p TS audio').isCam, isFalse);
+      expect(StreamSignals.fromText('Movie 2023 1080p TS-Group').isCam, isFalse);
+    });
+
     test('no marca CAM por una extensión .ts ni por palabras parecidas', () {
       expect(StreamSignals.fromText('Movie.2023.1080p.ts').isCam, isFalse);
       expect(StreamSignals.fromText('Camelot 1967 1080p').isCam, isFalse);
@@ -132,6 +154,17 @@ void main() {
       expect(
         StreamSignals.fromText('💾 1,5 GB').sizeBytes,
         (1.5 * 1024 * 1024 * 1024).round(),
+      );
+    });
+
+    test('coma de miles en MB', () {
+      expect(
+        StreamSignals.fromText('Movie 1,234 MB').sizeBytes,
+        1234 * 1024 * 1024,
+      );
+      expect(
+        StreamSignals.fromText('💾 1,234.5 MB').sizeBytes,
+        (1234.5 * 1024 * 1024).round(),
       );
     });
 

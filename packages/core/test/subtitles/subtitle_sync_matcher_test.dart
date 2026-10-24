@@ -75,22 +75,23 @@ void main() {
     });
   });
 
-  group('tres o más marcas: al menos el 70 %', () {
+  group('tres o más marcas: al menos el 60 %', () {
     final marks3 = [_s(100), _s(500), _s(900)];
 
-    test('con 3 marcas hacen falta las 3 (2 de 3 es 67 %)', () {
+    test('con 3 marcas alcanzan 2 (67 %) y no 1', () {
       final result = SubtitleSyncMatcher.match(
         candidates: [
           _cand('tres', [_cue(100), _cue(500), _cue(900)]),
           _cand('dos', [_cue(100), _cue(500), _cue(950)]),
+          _cand('una', [_cue(100), _cue(550), _cue(950)]),
         ],
         marks: marks3,
       );
-      expect(_ids(result.matches), ['tres']);
-      expect(_ids(result.discarded), ['dos']);
+      expect(_ids(result.matches), ['tres', 'dos']);
+      expect(_ids(result.discarded), ['una']);
     });
 
-    test('con 4 marcas alcanzan 3 (75 %)', () {
+    test('con 4 marcas alcanzan 3 (75 %) y no 2 (50 %)', () {
       final marks4 = [_s(100), _s(500), _s(900), _s(1300)];
       final result = SubtitleSyncMatcher.match(
         candidates: [
@@ -103,17 +104,17 @@ void main() {
       expect(_ids(result.discarded), ['dos-de-cuatro']);
     });
 
-    test('con 10 marcas alcanzan 7 y no 6', () {
+    test('con 10 marcas alcanzan 6 y no 5', () {
       final marks = [for (var i = 1; i <= 10; i++) _s(i * 100)];
       List<SubtitleCue> first(int n) => [
         for (var i = 1; i <= n; i++) _cue(i * 100),
       ];
       final result = SubtitleSyncMatcher.match(
-        candidates: [_cand('siete', first(7)), _cand('seis', first(6))],
+        candidates: [_cand('seis', first(6)), _cand('cinco', first(5))],
         marks: marks,
       );
-      expect(_ids(result.matches), ['siete']);
-      expect(_ids(result.discarded), ['seis']);
+      expect(_ids(result.matches), ['seis']);
+      expect(_ids(result.discarded), ['cinco']);
     });
   });
 
