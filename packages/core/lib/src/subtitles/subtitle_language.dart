@@ -19,8 +19,8 @@ enum SubtitleLanguage {
     english,
   ];
 
-  /// Idioma de [subtitle], mirando el código `lang`, el `label` y [title]
-  /// (por ejemplo, el título del stream o el nombre del archivo).
+  /// Idioma de [subtitle], mirando el código `lang` y, si el código no dice
+  /// nada, el `label`. Un código conocido manda: las palabras no lo cambian.
   ///
   /// Códigos que reconoce:
   /// - `spl`: el que usa OpenSubtitles v3 para el español de Latinoamérica
@@ -29,13 +29,15 @@ enum SubtitleLanguage {
   ///   `es-AR`, `es-CO`...);
   /// - `spa`, `es` y `es-ES` son español; `eng` y `en` (con región), inglés.
   ///
-  /// Además marca como LatAm a un subtítulo en español cuyo label o título
-  /// diga «Latino», «LatAm», «Latinoamérica», «América Latina» o «LA».
+  /// Las palabras solo refinan el español genérico (`spa`, `es`) a LatAm, y
+  /// solo si están en el `label`: «Latino», «LatAm», «Latinoamérica» o
+  /// «América Latina». [title] (el nombre del release) no se usa: trae cosas
+  /// como «Dual Latino» que describen el audio, no el subtítulo.
   static SubtitleLanguage detect(Subtitle subtitle, {String? title}) {
     final parts = subtitle.lang.trim().toLowerCase().split(RegExp('[-_]'));
     final base = parts.first;
     final region = parts.length > 1 ? parts[1] : null;
-    final text = [subtitle.label, title].whereType<String>().join(' ');
+    final text = subtitle.label ?? '';
 
     if (base == 'spl') return latam;
     if (base == 'es' &&
@@ -44,17 +46,14 @@ enum SubtitleLanguage {
       return latam;
     }
     if (base == 'eng' || base == 'en') return english;
+    if (_knownCode.hasMatch(base)) return other;
 
     final spanish =
         base == 'spa' || base == 'es' || _spanishWords.hasMatch(text);
     if (spanish) {
-      return _latamWords.hasMatch(text) || _latamInitials.hasMatch(text)
-          ? latam
-          : SubtitleLanguage.spanish;
+      return _latamWords.hasMatch(text) ? latam : SubtitleLanguage.spanish;
     }
-    if (_englishWords.hasMatch(text) && !_knownCode.hasMatch(base)) {
-      return english;
-    }
+    if (_englishWords.hasMatch(text)) return english;
     return other;
   }
 }
@@ -102,9 +101,6 @@ final RegExp _latamWords = RegExp(
   r'\blatino\b|\blatam\b|latinoam[eé]ric|am[eé]rica\s+latina|hispanoam[eé]ric',
   caseSensitive: false,
 );
-
-// «LA» en mayúsculas y suelto, como en «Spanish (LA)».
-final RegExp _latamInitials = RegExp(r'\bLA\b');
 
 // Códigos de idioma conocidos de 2 o 3 letras: si el código dice otra cosa,
 // el label no lo pisa.
