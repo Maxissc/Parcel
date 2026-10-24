@@ -1,0 +1,38 @@
+const String _manifestFile = 'manifest.json';
+
+/// Normaliza la URL de un manifest de addon.
+///
+/// Convierte `stremio://` en `https://`, tolera espacios y barras finales y
+/// completa `/manifest.json` si falta. Lanza [FormatException] si lo que queda
+/// no es una URL http(s) con host.
+String normalizeManifestUrl(String input) {
+  var text = input.trim();
+  if (text.toLowerCase().startsWith('stremio://')) {
+    text = 'https://${text.substring('stremio://'.length)}';
+  }
+  final uri = Uri.tryParse(text);
+  if (uri == null ||
+      !(uri.scheme == 'http' || uri.scheme == 'https') ||
+      uri.host.isEmpty) {
+    throw FormatException('No es una URL de addon válida', input);
+  }
+  var path = uri.path;
+  while (path.endsWith('/')) {
+    path = path.substring(0, path.length - 1);
+  }
+  if (!path.toLowerCase().endsWith('/$_manifestFile')) {
+    path = '$path/$_manifestFile';
+  }
+  return uri.replace(path: path).toString();
+}
+
+/// Base de transporte de un addon: la URL del manifest sin `/manifest.json`.
+///
+/// Las rutas de recursos (`/catalog/...`, `/stream/...`) cuelgan de acá.
+String transportBaseUrl(String manifestUrl) {
+  final url = manifestUrl.trim();
+  if (url.toLowerCase().endsWith('/$_manifestFile')) {
+    return url.substring(0, url.length - _manifestFile.length - 1);
+  }
+  return url;
+}
