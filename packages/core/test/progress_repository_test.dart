@@ -170,7 +170,7 @@ void main() {
     );
 
     test(
-      'si el último episodio de una serie ya terminó, la serie no aparece',
+      'si el último episodio ya terminó, queda el más reciente en curso',
       () async {
         final repo = await open();
         await repo.save(
@@ -191,9 +191,58 @@ void main() {
             at: DateTime.utc(2026, 10, 2),
           ),
         );
-        expect(repo.inProgress(), isEmpty);
+        expect(repo.inProgress().map((p) => p.videoId), ['serie:1:1']);
       },
     );
+
+    test(
+      'abrir otro episodio y cerrarlo al 1 % no saca la serie de seguir viendo',
+      () async {
+        final repo = await open();
+        await repo.save(
+          _p(
+            'serie',
+            type: 'series',
+            videoId: 'serie:1:1',
+            position: 500,
+            at: DateTime.utc(2026, 10, 1),
+          ),
+        );
+        await repo.save(
+          _p(
+            'serie',
+            type: 'series',
+            videoId: 'serie:1:2',
+            position: 10,
+            at: DateTime.utc(2026, 10, 2),
+          ),
+        );
+        expect(repo.inProgress().map((p) => p.videoId), ['serie:1:1']);
+      },
+    );
+
+    test('una serie con todos los episodios terminados no aparece', () async {
+      final repo = await open();
+      await repo.save(
+        _p(
+          'serie',
+          type: 'series',
+          videoId: 'serie:1:1',
+          position: 990,
+          at: DateTime.utc(2026, 10, 1),
+        ),
+      );
+      await repo.save(
+        _p(
+          'serie',
+          type: 'series',
+          videoId: 'serie:1:2',
+          position: 980,
+          at: DateTime.utc(2026, 10, 2),
+        ),
+      );
+      expect(repo.inProgress(), isEmpty);
+    });
 
     test('un archivo corrupto arranca vacío y queda como .bak', () async {
       File(filePath)
