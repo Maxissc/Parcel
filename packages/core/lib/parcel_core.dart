@@ -25,6 +25,7 @@ export 'src/subtitles/subtitle_alignment.dart';
 export 'src/subtitles/subtitle_fetcher.dart';
 export 'src/subtitles/subtitle_language.dart';
 export 'src/subtitles/subtitle_parser.dart';
+export 'src/subtitles/subtitle_sync_matcher.dart';
 export 'src/storage/addon_repository.dart';
 export 'src/storage/progress_repository.dart';
 export 'src/playback/fake_playback_engine.dart';
