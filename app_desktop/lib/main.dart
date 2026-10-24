@@ -1,12 +1,25 @@
 import 'package:flutter/material.dart';
+import 'package:media_kit/media_kit.dart';
 import 'package:parcel_core/parcel_core.dart';
 
+import 'diagnostics/playback_diagnostics.dart';
+import 'home/home_screen.dart';
+import 'playback/media_kit_playback_engine.dart';
+
 void main() {
-  runApp(const ParcelApp());
+  WidgetsFlutterBinding.ensureInitialized();
+  MediaKit.ensureInitialized();
+  runApp(ParcelApp(diagnostics: DiagnosticsConfig.fromEnvironment()));
 }
 
 class ParcelApp extends StatelessWidget {
-  const ParcelApp({super.key});
+  const ParcelApp({super.key, this.engineFactory, this.diagnostics});
+
+  /// Crea el motor de reproducción; por defecto, el de media_kit.
+  final PlaybackEngineFactory? engineFactory;
+
+  /// Modo de diagnóstico (solo debug).
+  final DiagnosticsConfig? diagnostics;
 
   @override
   Widget build(BuildContext context) {
@@ -15,7 +28,10 @@ class ParcelApp extends StatelessWidget {
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.indigo),
       ),
-      home: const Scaffold(body: Center(child: Text(appName))),
+      home: HomeScreen(
+        engineFactory: engineFactory ?? MediaKitPlaybackEngine.new,
+        diagnostics: diagnostics,
+      ),
     );
   }
 }
