@@ -40,10 +40,14 @@ enum SubtitleAlignment {
       if (cue.end > last) last = cue.end;
     }
     final ratio = last.inMicroseconds / videoDuration.inMicroseconds;
-    for (final factor in _fpsFactors) {
-      if ((ratio / factor - 1).abs() <= _fpsTolerance) return fpsMismatch;
-    }
     final upper = videoDuration + const Duration(seconds: 30);
+    // En un video corto el cociente de fps cae dentro del margen normal: solo
+    // cuenta si además el subtítulo se pasa de la duración más 30 s.
+    if (last > upper) {
+      for (final factor in _fpsFactors) {
+        if ((ratio / factor - 1).abs() <= _fpsTolerance) return fpsMismatch;
+      }
+    }
     if (ratio >= 0.85 && last <= upper) return likely;
     return unlikely;
   }
