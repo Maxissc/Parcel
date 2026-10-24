@@ -4,6 +4,7 @@ import 'dart:io';
 import '../models/addon_manifest.dart';
 import '../models/installed_addon.dart';
 import '../models/json_helpers.dart';
+import '../protocol/abortable_http.dart';
 import '../protocol/addon_client.dart';
 import '../protocol/addon_exception.dart';
 import '../protocol/manifest_url.dart';
@@ -109,9 +110,10 @@ class AddonRepository {
 
     final InstalledAddon fetched;
     try {
-      fetched = await _client
-          .fetchManifest(transportUrl)
-          .timeout(_installTimeout);
+      fetched = await runWithTimeoutAbort(
+        _installTimeout,
+        (abort) => _client.fetchManifest(transportUrl, abortTrigger: abort),
+      );
     } on AddonException catch (e) {
       return InstallFailed(e);
     } on TimeoutException {
