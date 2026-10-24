@@ -5,6 +5,6 @@ void main() {
   testWidgets('monta la app y muestra Parcel', (WidgetTester tester) async {
     await tester.pumpWidget(const ParcelApp());
 
-    expect(find.text('Parcel'), findsWidgets);
+    expect(find.text('Parcel'), findsOneWidget);
   });
 }
