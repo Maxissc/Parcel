@@ -130,6 +130,94 @@ void main() {
       await tester.pump(const Duration(milliseconds: 100));
     }
 
+    testWidgets('reproducción: los interruptores y la calidad se guardan', (
+      tester,
+    ) async {
+      await openSettings(tester);
+      final auto = tester.widget<SwitchListTile>(
+        find.byKey(const Key('setting-auto-source')),
+      );
+      expect(auto.value, isTrue);
+      expect(
+        tester
+            .widget<SwitchListTile>(find.byKey(const Key('setting-fullscreen')))
+            .value,
+        isTrue,
+      );
+
+      await tester.tap(find.byKey(const Key('setting-auto-source')));
+      await pumpIo(tester);
+      await tester.tap(find.byKey(const Key('setting-fullscreen')));
+      await pumpIo(tester);
+      await tester.tap(find.byKey(const Key('setting-quality')));
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.tap(find.text('4K').last);
+      await pumpIo(tester);
+
+      final saved = File('${dir.path}/settings.json').readAsStringSync();
+      expect(saved, contains('"autoSelectSource":false'));
+      expect(saved, contains('"openFullScreen":false'));
+      expect(saved, contains('"quality":"p2160"'));
+    });
+
+    testWidgets('el audio «Original» y los subtítulos LatAm son los defectos', (
+      tester,
+    ) async {
+      await openSettings(tester);
+
+      final audio = tester.widget<DropdownButton<String>>(
+        find.byKey(const Key('audio-language')),
+      );
+      final subtitles = tester.widget<DropdownButton<String>>(
+        find.byKey(const Key('subtitle-language')),
+      );
+      expect(audio.value, 'original');
+      expect(subtitles.value, 'latam');
+      expect(find.text('Original'), findsOneWidget);
+      expect(find.text('Español (Latinoamérica)'), findsOneWidget);
+    });
+
+    testWidgets('la key de TMDB va enmascarada y se guarda al confirmar', (
+      tester,
+    ) async {
+      await openSettings(tester);
+
+      expect(find.text('API key de TMDB (opcional)'), findsOneWidget);
+      expect(
+        find.textContaining('Suma fotos del elenco e idioma original'),
+        findsOneWidget,
+      );
+      await tester.enterText(
+        find.byKey(const Key('setting-tmdb-key')),
+        'clave-secreta-123',
+      );
+      expect(
+        tester
+            .widget<TextField>(find.byKey(const Key('setting-tmdb-key')))
+            .obscureText,
+        isTrue,
+      );
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await pumpIo(tester);
+
+      final saved = File('${dir.path}/settings.json').readAsStringSync();
+      expect(saved, contains('"tmdbApiKey":"clave-secreta-123"'));
+      // La key no se dibuja como texto en ningún lado.
+      expect(
+        find.byWidgetPredicate(
+          (w) => w is Text && (w.data ?? '').contains('clave-secreta'),
+        ),
+        findsNothing,
+      );
+    });
+
+    testWidgets('los ajustes entran en 960×600 sin desbordar', (tester) async {
+      await openSettings(tester);
+      tester.view.physicalSize = const Size(960, 600);
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(tester.takeException(), isNull);
+    });
+
     testWidgets('el idioma elegido se guarda en disco', (tester) async {
       await openSettings(tester);
 

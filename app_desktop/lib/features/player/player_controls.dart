@@ -412,6 +412,7 @@ class _SourceMenuButton extends StatelessWidget {
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 420),
               child: Row(
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   Flexible(
                     child: Text(
@@ -567,25 +568,24 @@ class _SubtitleMenu extends StatelessWidget {
                 checked: data.isSelected(entry),
                 child: ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 380),
-                  child: Row(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Flexible(
-                        child: Text(
-                          entry.external
-                              ? entry.label
-                              : '${entry.label} · del video',
-                          overflow: TextOverflow.ellipsis,
-                        ),
+                      Text(
+                        entry.external
+                            ? entry.label
+                            : '${entry.label} · del video',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
-                      if (tag != null) ...[
-                        const SizedBox(width: 12),
+                      if (tag != null)
                         Text(
                           tag,
                           style: theme.textTheme.bodySmall?.copyWith(
                             color: theme.colorScheme.onSurfaceVariant,
                           ),
                         ),
-                      ],
                     ],
                   ),
                 ),

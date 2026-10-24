@@ -44,8 +44,25 @@ class SubtitleSyncOverlay extends StatefulWidget {
 }
 
 class _SubtitleSyncOverlayState extends State<SubtitleSyncOverlay> {
+  final FocusNode _focus = FocusNode(debugLabel: 'sync-overlay');
   bool _showDiscarded = false;
   int _selected = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    // El reproductor ya tiene el foco: `autofocus` no alcanza, se lo pide
+    // recién armado el cuadro.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _focus.requestFocus();
+    });
+  }
+
+  @override
+  void dispose() {
+    _focus.dispose();
+    super.dispose();
+  }
 
   SyncMatchResult _result() => SubtitleSyncMatcher.match(
     candidates: widget.candidates,
@@ -95,7 +112,7 @@ class _SubtitleSyncOverlayState extends State<SubtitleSyncOverlay> {
     final selected = rows.isEmpty ? 0 : _selected.clamp(0, rows.length - 1);
 
     return Focus(
-      autofocus: true,
+      focusNode: _focus,
       onKeyEvent: _onKey,
       child: Material(
         key: const Key('sync-overlay'),
@@ -129,7 +146,10 @@ class _SubtitleSyncOverlayState extends State<SubtitleSyncOverlay> {
                   'a hablar.',
                 ),
                 const SizedBox(height: Spacing.sm),
-                Row(
+                Wrap(
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: Spacing.md,
+                  runSpacing: Spacing.xs,
                   children: [
                     FilledButton.icon(
                       key: const Key('sync-mark'),
@@ -137,7 +157,6 @@ class _SubtitleSyncOverlayState extends State<SubtitleSyncOverlay> {
                       icon: const Icon(Icons.flag_outlined),
                       label: const Text('Marcar ahora (S)'),
                     ),
-                    const SizedBox(width: Spacing.md),
                     Text(
                       marks.isEmpty
                           ? 'Todavía no marcaste nada'

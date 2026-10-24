@@ -9,6 +9,7 @@ import 'package:parcel_desktop/app/router.dart';
 import 'package:parcel_desktop/data/platform.dart';
 import 'package:parcel_desktop/features/player/player_screen.dart';
 import 'package:parcel_desktop/features/streams/stream_info.dart';
+import 'package:parcel_desktop/shared/stream_labels.dart';
 import 'package:parcel_desktop/features/streams/streams_args.dart';
 import 'package:parcel_desktop/features/streams/streams_screen.dart';
 
@@ -393,6 +394,39 @@ void main() {
       expect(find.text('Igual que el anterior'), findsOneWidget);
     },
   );
+
+  testWidgets('muestra el orden del ranking y el estado de la caché', (
+    tester,
+  ) async {
+    world.routes[_firstKey] = {
+      'streams': [
+        {
+          'name': 'Bajar',
+          'description': '1080p [RD download]\n💾 4.0 GB',
+          'url': 'http://media.example.com/bajar.mkv',
+        },
+        {
+          'name': 'Listo',
+          'description': '1080p [RD+] 👤 12\n💾 3.0 GB',
+          'url': 'http://media.example.com/listo.mkv',
+        },
+      ],
+    };
+    world.routes[_secondKey] = {'streams': []};
+    await openStreams(tester, StreamsArgs(meta: matrix()));
+
+    // El cacheado va antes que el que hay que bajar, aunque venga después.
+    expect(
+      tester.getTopLeft(find.text('Listo')).dy,
+      lessThan(tester.getTopLeft(find.text('Bajar')).dy),
+    );
+    expect(find.text('Mejor fuente'), findsOneWidget);
+    expect(find.text('⚡ Cacheado'), findsOneWidget);
+    expect(find.text('Sin cachear'), findsOneWidget);
+    expect(find.byTooltip(uncachedTooltip), findsOneWidget);
+    expect(find.text('👤 12'), findsOneWidget);
+    expect(find.text('3.0 GB'), findsOneWidget);
+  });
 
   group('etiquetas del texto del stream', () {
     test('detecta resolución, HDR, DV y tamaño', () {
