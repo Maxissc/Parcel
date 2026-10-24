@@ -96,13 +96,25 @@ class InstalledAddonsNotifier extends Notifier<List<InstalledAddon>> {
     return repository.addons;
   }
 
+  /// El repositorio avisa por su stream, que llega un instante después de que
+  /// termina la operación: se copia la lista al volver para que quien espera
+  /// la operación ya vea el estado nuevo.
+  void _sync() {
+    if (ref.mounted) state = _repository.addons;
+  }
+
   /// Instala el addon de [url] al final de la lista.
-  Future<InstallResult> installUrl(String url) => _repository.install(url);
+  Future<InstallResult> installUrl(String url) async {
+    final result = await _repository.install(url);
+    _sync();
+    return result;
+  }
 
   /// Quita [addon]. Devuelve la posición que tenía, para poder deshacer.
   Future<int> remove(InstalledAddon addon) async {
     final index = state.indexOf(addon);
     await _repository.remove(addon.transportUrl);
+    _sync();
     return index;
   }
 
@@ -116,11 +128,14 @@ class InstalledAddonsNotifier extends Notifier<List<InstalledAddon>> {
     final last = _repository.addons.length - 1;
     final target = index.clamp(0, last);
     if (target != last) await _repository.reorder(last, target);
+    _sync();
   }
 
   /// Mueve el addon de [oldIndex] a [newIndex] (la posición final).
-  Future<void> move(int oldIndex, int newIndex) =>
-      _repository.reorder(oldIndex, newIndex);
+  Future<void> move(int oldIndex, int newIndex) async {
+    await _repository.reorder(oldIndex, newIndex);
+    _sync();
+  }
 }
 
 /// Ajustes de la app (idiomas, asistente completado).
