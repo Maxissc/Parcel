@@ -5,7 +5,9 @@ import 'package:media_kit/media_kit.dart' as mk;
 import 'package:media_kit_video/media_kit_video.dart' as mkv;
 import 'package:parcel_core/parcel_core.dart';
 
+import 'cache_profile.dart';
 import 'playback_errors.dart';
+import 'playback_stats_reader.dart';
 import 'video_surface.dart';
 
 /// [PlaybackEngine] sobre media_kit (libmpv). Es el único lugar que conoce los
@@ -14,7 +16,8 @@ class MediaKitPlaybackEngine implements PlaybackEngine, VideoSurfaceProvider {
   MediaKitPlaybackEngine({
     this.loadTimeout = const Duration(seconds: 20),
     this.onLog,
-  }) {
+    CacheProfile? cacheProfile,
+  }) : cacheProfile = cacheProfile ?? detectCacheProfile() {
     // libass dibuja los subtítulos (ASS con estilos); con eso activo, media_kit
     // no dibuja su capa de subtítulos de Flutter.
     _player = mk.Player(
@@ -35,6 +38,9 @@ class MediaKitPlaybackEngine implements PlaybackEngine, VideoSurfaceProvider {
   final Duration loadTimeout;
   final void Function(String message)? onLog;
 
+  /// Caché que se le pide a mpv, según la RAM del equipo.
+  final CacheProfile cacheProfile;
+
   late final mk.Player _player;
   late final mkv.VideoController _video;
   final List<StreamSubscription<Object?>> _subs = [];
@@ -44,8 +50,15 @@ class MediaKitPlaybackEngine implements PlaybackEngine, VideoSurfaceProvider {
   final StreamController<PlaybackStats> _statsController =
       StreamController<PlaybackStats>.broadcast();
 
+  final MediaLoadGate _gate = MediaLoadGate();
+
   PlaybackState _state = const PlaybackState();
   PlaybackStats _stats = PlaybackStats.empty;
+  Timer? _statsTimer;
+  bool _polling = false;
+  mk.VideoParams? _videoParams;
+  mk.AudioParams? _audioParams;
+  bool _configured = false;
   bool _disposed = false;
 
   // Pistas de media_kit por id, para poder elegirlas.
@@ -85,6 +98,7 @@ class MediaKitPlaybackEngine implements PlaybackEngine, VideoSurfaceProvider {
     _subs.addAll([
       s.position.listen((v) => _update((st) => st.copyWith(position: v))),
       s.duration.listen((v) {
+        _gate.onDuration(v);
         _update((st) => st.copyWith(duration: v));
         if (v > Duration.zero) {
           final c = _loaded;
@@ -102,8 +116,14 @@ class MediaKitPlaybackEngine implements PlaybackEngine, VideoSurfaceProvider {
         (v) => _update((st) => st.copyWith(volume: (v / 100).clamp(0.0, 1.0))),
       ),
       s.tracks.listen(_onTracks),
+      s.videoParams.listen((v) => _videoParams = v),
+      s.audioParams.listen((v) => _audioParams = v),
       s.error.listen(_onError),
     ]);
+    _statsTimer = Timer.periodic(
+      const Duration(seconds: 1),
+      (_) => unawaited(_pollStats()),
+    );
     _observe('aid', (v) {
       _aid = v;
       _update(_withSelection);
@@ -127,6 +147,10 @@ class MediaKitPlaybackEngine implements PlaybackEngine, VideoSurfaceProvider {
   static bool _isReal(String id) => id != 'auto' && id != 'no';
 
   void _onTracks(mk.Tracks tracks) {
+    _gate.onTracks(
+      hasAudio: tracks.audio.any((t) => _isReal(t.id)),
+      hasVideo: tracks.video.any((t) => _isReal(t.id)),
+    );
     _audioById
       ..clear()
       ..addEntries(
@@ -142,7 +166,12 @@ class MediaKitPlaybackEngine implements PlaybackEngine, VideoSurfaceProvider {
     _update((st) {
       final audio = [
         for (final t in _audioById.values)
-          AudioTrack(id: t.id, language: t.language, title: t.title),
+          AudioTrack(
+            id: t.id,
+            language: t.language,
+            title: t.title,
+            isDefault: t.isDefault ?? false,
+          ),
       ];
       final subs = [
         for (final t in _subtitleById.values)
@@ -176,9 +205,10 @@ class MediaKitPlaybackEngine implements PlaybackEngine, VideoSurfaceProvider {
   }
 
   void _onError(String message) {
-    // Con el medio ya cargado, los errores que avisa mpv (un subtítulo que no
-    // abre, un frame que no decodifica) no cortan la reproducción.
-    if (_state.duration > Duration.zero) {
+    // Con el medio ya cargado (pistas o duración), los errores que avisa mpv
+    // (un subtítulo que no abre, un cuadro que no decodifica) no cortan la
+    // reproducción: solo se anotan.
+    if (!_gate.isFatalError) {
       _log('Aviso de reproducción: ${redactUrlsInText(message)}');
       return;
     }
@@ -202,9 +232,13 @@ class MediaKitPlaybackEngine implements PlaybackEngine, VideoSurfaceProvider {
   Future<void> open(PlaybackSource source) async {
     if (_disposed) return;
     _loaded = Completer<void>();
+    _gate.reset();
     _aid = null;
     _sid = null;
     _externalIds.clear();
+    _videoParams = null;
+    _audioParams = null;
+    _stats = PlaybackStats.empty;
     _update(
       (st) => PlaybackState(
         buffering: true,
@@ -213,6 +247,7 @@ class MediaKitPlaybackEngine implements PlaybackEngine, VideoSurfaceProvider {
       ),
     );
     try {
+      await _configure();
       await _player.open(
         mk.Media(
           source.url,
@@ -224,6 +259,67 @@ class MediaKitPlaybackEngine implements PlaybackEngine, VideoSurfaceProvider {
       );
     } catch (e) {
       _fail(e.toString());
+    }
+  }
+
+  /// Fija la caché de mpv y el retraso de subtítulos en cero. Se hace antes de
+  /// abrir el medio.
+  Future<void> _configure() async {
+    final platform = _player.platform;
+    if (platform is! mk.NativePlayer) return;
+    if (!_configured) {
+      _configured = true;
+      for (final option in cacheProfile.mpvOptions.entries) {
+        await platform.setProperty(option.key, option.value);
+      }
+      _log('Caché: ${cacheProfile.label}');
+    }
+    await platform.setProperty('sub-delay', '0');
+  }
+
+  /// Lee los datos técnicos de mpv y los emite si cambiaron.
+  Future<void> _pollStats() async {
+    if (_disposed || _polling || _statsController.isClosed) return;
+    if (!_gate.loaded) return;
+    final platform = _player.platform;
+    if (platform is! mk.NativePlayer) return;
+    _polling = true;
+    try {
+      Future<String> get(String name) => platform.getProperty(name);
+      final fps =
+          parseMpvDouble(await get('estimated-vf-fps')) ??
+          parseMpvDouble(await get('container-fps'));
+      final bitrate = parseMpvDouble(await get('video-bitrate'));
+      final buffer = bufferFromCacheState(
+        await get('demuxer-cache-state'),
+        _state.position,
+      );
+      final vp = _videoParams;
+      final ap = _audioParams;
+      final next = PlaybackStats(
+        videoWidth: vp?.w,
+        videoHeight: vp?.h,
+        fps: fps != null && fps > 0 ? fps : null,
+        videoCodec: shortCodecName(await get('video-codec')),
+        dynamicRange: dynamicRangeOf(
+          gamma: vp?.gamma,
+          colormatrix: vp?.colormatrix,
+        ),
+        hardwareDecoder: hardwareDecoderName(await get('hwdec-current')),
+        videoBitrate: bitrate != null && bitrate > 0 ? bitrate.round() : null,
+        audioCodec: shortCodecName(await get('audio-codec-name')),
+        audioChannels: ap?.channelCount,
+        bufferAhead: buffer?.ahead ?? Duration.zero,
+        bufferBehind: buffer?.behind ?? Duration.zero,
+        cacheLevel: cacheProfile.label,
+      );
+      if (_disposed || next == _stats) return;
+      _stats = next;
+      _statsController.add(next);
+    } on Object catch (e) {
+      _log('No se pudieron leer los datos técnicos: ${redactUrlsInText('$e')}');
+    } finally {
+      _polling = false;
     }
   }
 
@@ -353,6 +449,7 @@ class MediaKitPlaybackEngine implements PlaybackEngine, VideoSurfaceProvider {
   Future<void> dispose() async {
     if (_disposed) return;
     _disposed = true;
+    _statsTimer?.cancel();
     for (final s in _subs) {
       await s.cancel();
     }

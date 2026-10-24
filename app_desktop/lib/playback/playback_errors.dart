@@ -51,3 +51,33 @@ String playbackErrorMessage(String raw) {
   }
   return 'No se pudo abrir el video.';
 }
+
+/// Sabe si el medio ya cargó, para decidir si un error de mpv es fatal.
+///
+/// Los avisos de mpv con el medio cargado (un subtítulo que no abre, un cuadro
+/// que no decodifica) no cortan la reproducción. Un error es fatal solo si el
+/// medio no cargó: no hubo pistas de audio o video ni duración.
+class MediaLoadGate {
+  bool _tracks = false;
+  bool _duration = false;
+
+  /// Las pistas que informó el motor: cuenta si hay de audio o de video.
+  void onTracks({required bool hasAudio, required bool hasVideo}) {
+    if (hasAudio || hasVideo) _tracks = true;
+  }
+
+  void onDuration(Duration duration) {
+    if (duration > Duration.zero) _duration = true;
+  }
+
+  bool get loaded => _tracks || _duration;
+
+  /// `true` si un error que llega ahora tiene que cortar la reproducción.
+  bool get isFatalError => !loaded;
+
+  /// Al abrir otro medio.
+  void reset() {
+    _tracks = false;
+    _duration = false;
+  }
+}
