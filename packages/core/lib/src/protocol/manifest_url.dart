@@ -26,13 +26,26 @@ String normalizeManifestUrl(String input) {
   return uri.replace(path: path).toString();
 }
 
-/// Base de transporte de un addon: la URL del manifest sin `/manifest.json`.
+/// Base de transporte de un addon: la URL del manifest sin `/manifest.json`
+/// y sin query ni fragmento (la query la devuelve [transportQuery]).
 ///
 /// Las rutas de recursos (`/catalog/...`, `/stream/...`) cuelgan de acá.
 String transportBaseUrl(String manifestUrl) {
-  final url = manifestUrl.trim();
+  var url = manifestUrl.trim();
+  final cut = url.indexOf(RegExp('[?#]'));
+  if (cut >= 0) url = url.substring(0, cut);
   if (url.toLowerCase().endsWith('/$_manifestFile')) {
     return url.substring(0, url.length - _manifestFile.length - 1);
   }
   return url;
+}
+
+/// Query de la URL del manifest, sin el `?` (vacía si no tiene). Va al final
+/// de cada URL de recurso.
+String transportQuery(String manifestUrl) {
+  final url = manifestUrl.trim();
+  final start = url.indexOf('?');
+  if (start < 0) return '';
+  final end = url.indexOf('#', start);
+  return url.substring(start + 1, end < 0 ? url.length : end);
 }

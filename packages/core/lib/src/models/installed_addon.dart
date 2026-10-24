@@ -10,7 +10,8 @@ class InstalledAddon {
   final String transportUrl;
   final AddonManifest manifest;
 
-  /// Base de las rutas de recursos: [transportUrl] sin `/manifest.json`.
+  /// Base de las rutas de recursos: [transportUrl] sin `/manifest.json` ni
+  /// query (la query va al final de cada recurso).
   String get baseUrl => transportBaseUrl(transportUrl);
 
   /// Lanza [FormatException] si falta `transportUrl` o el manifest es inválido.

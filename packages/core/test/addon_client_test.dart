@@ -54,6 +54,30 @@ void main() {
       );
     });
 
+    test('pone la query del manifest al final del recurso', () {
+      expect(
+        buildResourceUrl(
+          baseUrl: 'https://host.example/x',
+          query: 'token=1',
+          resource: 'catalog',
+          type: 'movie',
+          id: 'top',
+        ),
+        'https://host.example/x/catalog/movie/top.json?token=1',
+      );
+      expect(
+        buildResourceUrl(
+          baseUrl: 'https://host.example/x',
+          query: 'token=1',
+          resource: 'catalog',
+          type: 'movie',
+          id: 'top',
+          extra: const {'skip': '20'},
+        ),
+        'https://host.example/x/catalog/movie/top/skip=20.json?token=1',
+      );
+    });
+
     test('codifica los ids con dos puntos como Stremio', () {
       expect(
         buildResourceUrl(
@@ -131,6 +155,23 @@ void main() {
       expect(addon.transportUrl, 'https://v3-cinemeta.strem.io/manifest.json');
       expect(addon.baseUrl, 'https://v3-cinemeta.strem.io');
       expect(addon.manifest.name, 'Cinemeta');
+    });
+
+    test('un manifest con query pide los recursos con esa query', () async {
+      Uri? asked;
+      final client = _client((req) {
+        asked = req.url;
+        return _json({'metas': []});
+      });
+      final addon = InstalledAddon(
+        transportUrl: 'https://host.example/x/manifest.json?token=1',
+        manifest: _addon().manifest,
+      );
+      await client.catalog(addon, 'movie', 'top');
+      expect(
+        asked.toString(),
+        'https://host.example/x/catalog/movie/top.json?token=1',
+      );
     });
 
     test('pide un catálogo con extras y parsea las metas', () async {
