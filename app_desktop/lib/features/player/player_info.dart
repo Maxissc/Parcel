@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:parcel_core/parcel_core.dart';
 
 import '../../app/theme.dart';
-import '../../shared/stream_labels.dart';
 
 /// De dónde sale lo que se está viendo y qué es, para el panel de datos.
 /// Nunca lleva URLs.
@@ -235,7 +234,3 @@ class InfoPanel extends StatelessWidget {
     );
   }
 }
-
-/// «1080p · 5.1»... para el nombre de un stream en una línea, sin URLs: lo usa
-/// el panel; la parte de chips es la de [signalChips].
-String streamSummary(StreamSignals s) => signalChips(s).join(' · ');
