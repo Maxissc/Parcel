@@ -1,0 +1,74 @@
+{
+  "subtitles": [
+    {
+      "id": "30949",
+      "url": "https://subs5.strem.io/en/download/subencoding-stremio-utf8/src-api/file/36919",
+      "SubEncoding": "CP1252",
+      "lang": "eng",
+      "m": "i",
+      "g": "11",
+      "subtitleFileName": "sawshank_redemption_engl.srt",
+      "movieReleaseName": "Shawshank Redemption, The (1994)",
+      "fpsMilli": 23980,
+      "season": 0,
+      "episode": 0
+    },
+    {
+      "id": "68061",
+      "url": "https://subs5.strem.io/en/download/subencoding-stremio-utf8/src-api/file/88133",
+      "SubEncoding": "ASCII",
+      "lang": "eng",
+      "m": "i",
+      "g": "11",
+      "subtitleFileName": "The_Shawshank_Redemption_(1994).CD1.aFLDp.srt",
+      "movieReleaseName": "Shawshank Redemption, The (1994)",
+      "fpsMilli": 23980,
+      "season": 0,
+      "episode": 0
+    },
+    {
+      "id": "29328",
+      "url": "https://subs5.strem.io/en/download/subencoding-stremio-utf8/src-api/file/34738",
+      "SubEncoding": "ASCII",
+      "lang": "eng",
+      "m": "i",
+      "g": "11",
+      "subtitleFileName": "The Shawshank Redemption SBC AC3 aFLDp CD1.eng.srt",
+      "movieReleaseName": "Shawshank Redemption, The (1994)",
+      "releaseGroup": "aFLDp",
+      "fpsMilli": 23980,
+      "season": 0,
+      "episode": 0
+    },
+    {
+      "id": "30951",
+      "url": "https://subs5.strem.io/en/download/subencoding-stremio-utf8/src-api/file/36922",
+      "SubEncoding": "CP1252",
+      "lang": "pob",
+      "m": "i",
+      "g": "11",
+      "subtitleFileName": "sawshank_redemption_port.srt",
+      "movieReleaseName": "Shawshank Redemption, The (1994)",
+      "fpsMilli": 23980,
+      "season": 0,
+      "episode": 0
+    },
+    {
+      "id": "78390",
+      "url": "https://subs5.strem.io/en/download/subencoding-stremio-utf8/src-api/file/103741",
+      "SubEncoding": "CP1252",
+      "lang": "pob",
+      "m": "i",
+      "g": "36",
+      "subtitleFileName": "The.Shawshank.Redemption.1994.DVDRip.AC3.XviD-OS.iLUMiNADOS.CD1.PT-BR.srt",
+      "movieReleaseName": "Shawshank Redemption, The (1994)",
+      "releaseFormat": "DVD",
+      "fpsMilli": 23976,
+      "season": 0,
+      "episode": 0
+    }
+  ],
+  "cacheMaxAge": 14400,
+  "staleRevalidate": 43200,
+  "staleError": 86400
+}

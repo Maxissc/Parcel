@@ -1,6 +1,7 @@
 /// Lógica de Parcel en Dart puro.
 library;
 
+export 'src/models/addon_manifest.dart';
 export 'src/protocol/manifest_url.dart';
 
 /// Nombre de la app, para mostrar en la interfaz.
