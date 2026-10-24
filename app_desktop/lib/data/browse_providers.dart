@@ -12,8 +12,14 @@ typedef CatalogKey = ({CatalogRef catalog, String? search});
 /// app (volver al inicio no recarga); los de una búsqueda se sueltan al salir.
 final catalogItemsProvider = FutureProvider.autoDispose
     .family<AddonResult<List<Meta>>, CatalogKey>((ref, key) {
-      if (key.search == null) ref.keepAlive();
       final search = key.search;
+      if (search == null) {
+        // Se queda en memoria, pero no más allá de que se quite su addon.
+        final link = ref.keepAlive();
+        ref.listen(installedAddonsProvider, (_, addons) {
+          if (!addons.contains(key.catalog.addon)) link.close();
+        });
+      }
       return ref
           .watch(addonAggregatorProvider)
           .fetchCatalog(

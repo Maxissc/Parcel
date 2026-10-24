@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:parcel_core/parcel_core.dart';
+import 'package:parcel_desktop/data/browse_providers.dart';
 import 'package:parcel_desktop/data/platform.dart';
 import 'package:parcel_desktop/data/providers.dart';
 import 'package:parcel_desktop/features/detail/detail_screen.dart';
@@ -115,6 +116,48 @@ void main() {
     await pumpIo(tester, ticks: 4);
     expect(find.text('The Matrix'), findsOneWidget);
     expect(find.byType(Skeleton), findsNothing);
+  });
+
+  testWidgets('cuando carga una fila solo se redibuja esa fila', (
+    tester,
+  ) async {
+    final gates = {_movieTop: Completer<void>(), _seriesTop: Completer<void>()};
+    world.gates.addAll(gates);
+    await openHome(tester);
+    gates[_seriesTop]!.complete();
+    await pumpIo(tester, ticks: 4);
+    expect(find.text('Breaking Bad'), findsOneWidget);
+
+    final rebuilt = <String>[];
+    debugOnRebuildDirtyWidget = (element, builtOnce) =>
+        rebuilt.add(element.widget.runtimeType.toString());
+    addTearDown(() => debugOnRebuildDirtyWidget = null);
+    gates[_movieTop]!.complete();
+    await pumpIo(tester, ticks: 4);
+    debugOnRebuildDirtyWidget = null;
+
+    expect(find.text('The Matrix'), findsOneWidget);
+    expect(rebuilt.where((w) => w == 'HomeScreen'), isEmpty);
+    expect(rebuilt.where((w) => w == 'CatalogRowSection'), hasLength(1));
+  });
+
+  testWidgets('quitar un addon libera las filas que guardaba su catálogo', (
+    tester,
+  ) async {
+    await openHome(tester);
+    final container = containerOf(tester);
+    final catalog = container
+        .read(addonAggregatorProvider)
+        .homeCatalogs()
+        .first;
+    final key = (catalog: catalog, search: null);
+    expect(container.exists(catalogItemsProvider(key)), isTrue);
+
+    final notifier = container.read(installedAddonsProvider.notifier);
+    await tester.runAsync(() => notifier.remove(catalog.addon));
+    await pumpIo(tester, ticks: 4);
+
+    expect(container.exists(catalogItemsProvider(key)), isFalse);
   });
 
   testWidgets(

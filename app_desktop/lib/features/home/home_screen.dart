@@ -5,6 +5,7 @@ import 'package:parcel_core/parcel_core.dart';
 
 import '../../app/router.dart';
 import '../../app/theme.dart';
+import '../../data/browse_providers.dart';
 import '../../data/progress_providers.dart';
 import '../../data/providers.dart';
 import '../../shared/catalog_row_section.dart';
@@ -15,6 +16,22 @@ import 'continue_watching_row.dart';
 /// enseguida mientras llega la meta completa).
 void openDetail(BuildContext context, Meta meta) =>
     context.push(Routes.detailPath(meta.type, meta.id), extra: meta);
+
+/// `true` cuando todas las filas de la home terminaron y vinieron vacías.
+///
+/// Es un solo booleano: la pantalla se redibuja cuando cambia eso, no cada vez
+/// que carga una fila (cada fila mira su propio estado).
+final homeRowsAllEmptyProvider = Provider.autoDispose<bool>((ref) {
+  ref.watch(installedAddonsProvider);
+  final catalogs = ref.watch(addonAggregatorProvider).homeCatalogs();
+  return catalogs.every(
+    (catalog) =>
+        rowStatusOf(
+          ref.watch(catalogItemsProvider((catalog: catalog, search: null))),
+        ) ==
+        RowStatus.empty,
+  );
+});
 
 /// Inicio: «Seguir viendo» y una fila por cada catálogo de la home de los
 /// addons. Las filas cargan solas y en paralelo.
@@ -27,10 +44,7 @@ class HomeScreen extends ConsumerWidget {
     ref.watch(installedAddonsProvider);
     final catalogs = ref.watch(addonAggregatorProvider).homeCatalogs();
     final hasContinue = ref.watch(continueWatchingProvider).isNotEmpty;
-    final statuses = [
-      for (final catalog in catalogs)
-        rowStatus(ref, (catalog: catalog, search: null)),
-    ];
+    final allEmpty = ref.watch(homeRowsAllEmptyProvider);
 
     if (catalogs.isEmpty && !hasContinue) {
       return EmptyState(
@@ -48,7 +62,7 @@ class HomeScreen extends ConsumerWidget {
         ],
       );
     }
-    if (!hasContinue && statuses.every((s) => s == RowStatus.empty)) {
+    if (!hasContinue && allEmpty) {
       return const EmptyState(
         icon: Icons.movie_outlined,
         title: 'No hay nada para mostrar por ahora',

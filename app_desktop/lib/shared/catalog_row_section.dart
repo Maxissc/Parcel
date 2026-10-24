@@ -13,8 +13,11 @@ enum RowStatus { loading, empty, failed, ready }
 
 /// Estado de la fila de [key] sin dibujarla (la home lo usa para saber si no
 /// hay nada que mostrar).
-RowStatus rowStatus(WidgetRef ref, CatalogKey key) {
-  final async = ref.watch(catalogItemsProvider(key));
+RowStatus rowStatus(WidgetRef ref, CatalogKey key) =>
+    rowStatusOf(ref.watch(catalogItemsProvider(key)));
+
+/// Igual que [rowStatus], desde el valor ya leído.
+RowStatus rowStatusOf(AsyncValue<AddonResult<List<Meta>>> async) {
   final result = async.value;
   if (async.isLoading && result == null) return RowStatus.loading;
   if (async.hasError || result is AddonFailure) return RowStatus.failed;

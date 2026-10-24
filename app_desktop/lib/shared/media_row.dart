@@ -98,8 +98,20 @@ class _ShelfState extends State<Shelf> {
     super.dispose();
   }
 
+  // Lo último que se dibujó de las flechas: la fila solo se redibuja cuando
+  // una flecha aparece o desaparece, no en cada paso del desplazamiento.
+  bool _backShown = false;
+  bool _forwardShown = false;
+
   void _changed() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    final back = _canGoBack;
+    final forward = _canGoForward;
+    if (back == _backShown && forward == _forwardShown) return;
+    setState(() {
+      _backShown = back;
+      _forwardShown = forward;
+    });
   }
 
   double get _max =>
