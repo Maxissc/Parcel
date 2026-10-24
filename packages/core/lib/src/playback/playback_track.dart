@@ -14,17 +14,26 @@ abstract class PlaybackTrack {
 
 /// Pista de audio.
 class AudioTrack extends PlaybackTrack {
-  const AudioTrack({required super.id, super.language, super.title});
+  const AudioTrack({
+    required super.id,
+    super.language,
+    super.title,
+    this.isDefault = false,
+  });
+
+  /// `true` si el archivo la marca como pista por defecto.
+  final bool isDefault;
 
   @override
   bool operator ==(Object other) =>
       other is AudioTrack &&
       other.id == id &&
       other.language == language &&
-      other.title == title;
+      other.title == title &&
+      other.isDefault == isDefault;
 
   @override
-  int get hashCode => Object.hash(id, language, title);
+  int get hashCode => Object.hash(id, language, title, isDefault);
 
   @override
   String toString() => 'AudioTrack($id $language $title)';

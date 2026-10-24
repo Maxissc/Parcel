@@ -30,6 +30,7 @@ export 'src/subtitles/subtitle_sync_matcher.dart';
 export 'src/storage/addon_repository.dart';
 export 'src/storage/progress_repository.dart';
 export 'src/playback/fake_playback_engine.dart';
+export 'src/playback/original_language.dart';
 export 'src/playback/playback_engine.dart';
 export 'src/playback/playback_source.dart';
 export 'src/playback/playback_state.dart';
