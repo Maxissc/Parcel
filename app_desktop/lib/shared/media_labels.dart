@@ -36,4 +36,5 @@ String failureText(AddonException error) => switch (error.reason) {
         : 'Respondió con el error ${error.statusCode}',
   AddonFailureReason.parse => 'Mandó una respuesta que no se entiende',
   AddonFailureReason.invalidUrl => 'La dirección del addon no es válida',
+  AddonFailureReason.storage => 'No se pudo guardar en disco',
 };

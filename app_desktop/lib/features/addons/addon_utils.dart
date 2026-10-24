@@ -31,4 +31,5 @@ String describeInstallFailure(AddonException error) => switch (error.reason) {
         : 'El addon respondió con un error (HTTP ${error.statusCode}).',
   AddonFailureReason.network => 'No se pudo conectar con el addon.',
   AddonFailureReason.parse => 'La dirección no devolvió un manifest válido.',
+  AddonFailureReason.storage => 'No se pudo guardar en disco.',
 };
