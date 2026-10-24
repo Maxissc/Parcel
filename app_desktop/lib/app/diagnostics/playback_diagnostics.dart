@@ -14,6 +14,9 @@ import 'package:parcel_core/parcel_core.dart';
 /// - `PARCEL_DIAG_SUB`: URL de un subtítulo externo para cargar al abrir.
 /// - `PARCEL_DIAG_CYCLE_TRACKS=1`: recorre las pistas de audio y de subtítulos.
 /// - `PARCEL_DIAG_EXIT_SECONDS`: cierra la app pasados esos segundos.
+/// - `PARCEL_DIAG_PASTE`: texto con URLs de addons; completa solo el paso
+///   «Pegar lista» del asistente, confirma la importación y deja el informe en
+///   el log (líneas `[diag]`).
 class DiagnosticsConfig {
   const DiagnosticsConfig({
     this.url,
@@ -21,6 +24,7 @@ class DiagnosticsConfig {
     this.cycleTracks = false,
     this.exitAfter,
     this.logPath,
+    this.paste,
   });
 
   final String? url;
@@ -28,6 +32,9 @@ class DiagnosticsConfig {
   final bool cycleTracks;
   final Duration? exitAfter;
   final String? logPath;
+
+  /// Texto a pegar en el asistente de migración; `null` si no hay.
+  final String? paste;
 
   /// `null` si no es debug o no está `PARCEL_DIAG`.
   static DiagnosticsConfig? fromEnvironment([Map<String, String>? env]) {
@@ -42,6 +49,7 @@ class DiagnosticsConfig {
       cycleTracks: e['PARCEL_DIAG_CYCLE_TRACKS'] == '1',
       exitAfter: exit == null ? null : Duration(seconds: exit),
       logPath: nonEmpty(e['PARCEL_DIAG_LOG']),
+      paste: nonEmpty(e['PARCEL_DIAG_PASTE']),
     );
   }
 }
