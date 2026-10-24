@@ -51,11 +51,6 @@ void main() {
     aborted = [];
   });
 
-  setUp(() {
-    requests = [];
-    aborted = [];
-  });
-
   group('éxito', () {
     test(
       'una lista HLS chica es válida (el video viene en segmentos)',
@@ -388,6 +383,158 @@ void main() {
       final fake = _Fake((_) async => _response(302, contentLength: 0));
       final result = await StreamProber(fake.client).probe(_stream());
       expect(result.failure, ProbeFailure.http);
+    });
+
+    test('a otro host solo reenvía User-Agent y Range', () async {
+      final fake = _Fake((req) async {
+        if (req.url.host == 'cdn.example.com') {
+          return _response(
+            307,
+            headers: {'location': 'https://otro.example.net/v.mp4'},
+            contentLength: 0,
+          );
+        }
+        return _response(
+          206,
+          headers: {'content-range': 'bytes 0-0/900000000'},
+          contentLength: 1,
+        );
+      });
+      await StreamProber(fake.client).probe(
+        _stream(_secretUrl, {
+          'User-Agent': 'Parcel',
+          'Referer': 'https://r.example/',
+          'X-Token': 'abc',
+          'Origin': 'https://r.example',
+        }),
+      );
+      final second = requests[1].headers;
+      expect(second['User-Agent'], 'Parcel');
+      expect(second['Range'], 'bytes=0-0');
+      expect(second.containsKey('Referer'), isFalse);
+      expect(second.containsKey('X-Token'), isFalse);
+      expect(second.containsKey('Origin'), isFalse);
+      // En el mismo host se mantienen todos.
+      expect(requests[0].headers['Referer'], 'https://r.example/');
+    });
+
+    test('cancelar durante un salto no sigue con el próximo', () async {
+      final gate = Completer<void>();
+      final fake = _Fake((req) async {
+        await gate.future;
+        return _response(
+          302,
+          headers: {'location': '/final/video.mkv'},
+          contentLength: 0,
+        );
+      });
+      final cancel = Completer<void>();
+      final future = StreamProber(
+        fake.client,
+      ).probe(_stream(), abortTrigger: cancel.future);
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      cancel.complete();
+      expect((await future).failure, ProbeFailure.cancelled);
+      gate.complete();
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(requests, hasLength(1));
+    });
+  });
+
+  group('no baja el cuerpo', () {
+    http.StreamedResponse withBody(
+      StreamController<List<int>> body,
+      int status,
+      Map<String, String> headers,
+    ) => http.StreamedResponse(
+      body.stream,
+      status,
+      headers: headers,
+      contentLength: status == 206 ? 1 : 800 * 1024 * 1024,
+    );
+
+    test('206: cancela el cuerpo', () async {
+      var cancelled = false;
+      final body = StreamController<List<int>>(onCancel: () => cancelled = true);
+      final fake = _Fake(
+        (_) async => withBody(body, 206, {
+          'content-type': 'video/mp4',
+          'content-range': 'bytes 0-0/900000000',
+        }),
+      );
+      final result = await StreamProber(fake.client).probe(_stream());
+      await Future<void>.delayed(Duration.zero);
+      expect(result.ok, isTrue);
+      expect(cancelled, isTrue);
+    });
+
+    test('200 sin Range: cancela el cuerpo', () async {
+      var cancelled = false;
+      final body = StreamController<List<int>>(onCancel: () => cancelled = true);
+      final fake = _Fake(
+        (_) async => withBody(body, 200, {'content-type': 'video/mp4'}),
+      );
+      final result = await StreamProber(fake.client).probe(_stream());
+      await Future<void>.delayed(Duration.zero);
+      expect(result.ok, isTrue);
+      expect(cancelled, isTrue);
+    });
+  });
+
+  group('content-type', () {
+    test('solo falla por type con tipos de texto, json, xml o js', () async {
+      for (final type in [
+        'text/html',
+        'text/plain; charset=utf-8',
+        'application/json',
+        'application/xml',
+        'application/javascript',
+        'application/x-javascript',
+      ]) {
+        final fake = _Fake(
+          (_) async => _response(
+            200,
+            headers: {'content-type': type},
+            contentLength: 80 * 1024 * 1024,
+          ),
+        );
+        final result = await StreamProber(fake.client).probe(_stream());
+        expect(result.failure, ProbeFailure.type, reason: type);
+      }
+    });
+
+    test('cualquier otro tipo pasa al chequeo de tamaño', () async {
+      for (final type in [
+        'application/force-download',
+        'binary/octet-stream',
+        'application/mp4',
+        'application/dash+xml',
+      ]) {
+        final big = _Fake(
+          (_) async => _response(
+            200,
+            headers: {'content-type': type},
+            contentLength: 80 * 1024 * 1024,
+          ),
+        );
+        expect(
+          (await StreamProber(big.client).probe(_stream())).ok,
+          isTrue,
+          reason: type,
+        );
+        final small = _Fake(
+          (_) async => _response(
+            200,
+            headers: {'content-type': type},
+            contentLength: 100 * 1024,
+          ),
+        );
+        expect(
+          (await StreamProber(small.client).probe(_stream())).failure,
+          ProbeFailure.placeholder,
+          reason: type,
+        );
+      }
     });
   });
 }
