@@ -16,6 +16,12 @@ export 'src/protocol/manifest_url.dart';
 export 'src/protocol/routes.dart';
 export 'src/storage/addon_repository.dart';
 export 'src/storage/progress_repository.dart';
+export 'src/playback/fake_playback_engine.dart';
+export 'src/playback/playback_engine.dart';
+export 'src/playback/playback_source.dart';
+export 'src/playback/playback_state.dart';
+export 'src/playback/playback_track.dart';
+export 'src/playback/playback_utils.dart';
 
 /// Nombre de la app, para mostrar en la interfaz.
 const String appName = 'Parcel';
