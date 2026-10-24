@@ -89,4 +89,37 @@ void main() {
   test('JSON truncado cae al barrido de texto', () {
     expect(PastedAddonsParser.parse('["$a", "$b"'), [a, b]);
   });
+
+  group('URLs con comas en la ruta (Torrentio)', () {
+    // normalizeManifestUrl codifica la barra vertical como %7C (equivalente).
+    String n(String url) => url.replaceAll('|', '%7C');
+    const t1 =
+        'https://torrentio.strem.fun/providers=yts,eztv|qualityfilter=480p,cam/manifest.json';
+    const t2 =
+        'https://torrentio.strem.fun/providers=nyaasi,tokyotosho|sort=seeders/manifest.json';
+
+    test('texto suelto separado por coma y espacio, o por salto de línea', () {
+      expect(PastedAddonsParser.parse('$t1, $t2'), [n(t1), n(t2)]);
+      expect(PastedAddonsParser.parse('$t1\n$t2'), [n(t1), n(t2)]);
+    });
+
+    test('una coma pegada a otro esquema sí separa', () {
+      expect(PastedAddonsParser.parse('$t1,$a'), [n(t1), a]);
+    });
+
+    test('una coma final no forma parte de la URL', () {
+      expect(PastedAddonsParser.parse('mirá $t1, y listo'), [n(t1)]);
+      expect(PastedAddonsParser.parse('$t1,'), [n(t1)]);
+    });
+
+    test('colección JSON con una URL con comas y barra vertical', () {
+      const json =
+          '{"result":{"addons":[{"transportUrl":"$t1","manifest":{"id":"t","name":"T"}}]}}';
+      expect(PastedAddonsParser.parse(json), [n(t1)]);
+    });
+
+    test('lista JSON de strings con comas en la ruta', () {
+      expect(PastedAddonsParser.parse('["$t1","$t2"]'), [n(t1), n(t2)]);
+    });
+  });
 }
