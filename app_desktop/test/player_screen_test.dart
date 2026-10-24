@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:parcel_core/parcel_core.dart';
-import 'package:parcel_desktop/player/player_screen.dart';
+import 'package:parcel_desktop/features/player/player_screen.dart';
 
 const _audioEs = AudioTrack(id: '1', language: 'spa', title: 'Castellano');
 const _audioEn = AudioTrack(id: '2', language: 'eng', title: 'Original');

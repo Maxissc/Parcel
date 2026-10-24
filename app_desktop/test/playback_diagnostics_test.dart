@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:parcel_core/parcel_core.dart';
-import 'package:parcel_desktop/diagnostics/playback_diagnostics.dart';
+import 'package:parcel_desktop/app/diagnostics/playback_diagnostics.dart';
 
 void main() {
   test('registra pistas, elección y errores del motor', () async {

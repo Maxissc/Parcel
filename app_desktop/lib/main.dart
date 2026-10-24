@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:parcel_core/parcel_core.dart';
 
-import 'diagnostics/playback_diagnostics.dart';
-import 'home/home_screen.dart';
+import 'app/diagnostics/playback_diagnostics.dart';
+import 'features/home/home_screen.dart';
 import 'playback/media_kit_playback_engine.dart';
 
 void main() {

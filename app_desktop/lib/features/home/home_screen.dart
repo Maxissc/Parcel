@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:parcel_core/parcel_core.dart';
 
-import '../diagnostics/playback_diagnostics.dart';
+import '../../app/diagnostics/playback_diagnostics.dart';
 import '../player/player_screen.dart';
-import 'try_player_dialog.dart';
+import '../settings/try_player_dialog.dart';
 
 /// Crea el motor de reproducción. En la app es [MediaKitPlaybackEngine]; en
 /// los tests, un motor falso.

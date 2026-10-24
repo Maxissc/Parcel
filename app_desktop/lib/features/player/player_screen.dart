@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:parcel_core/parcel_core.dart';
 
-import '../playback/video_surface.dart';
+import '../../playback/video_surface.dart';
 import 'player_controls.dart';
 
 /// Pantalla del reproductor: video a pantalla completa de la ventana y
