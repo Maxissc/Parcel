@@ -65,6 +65,11 @@ void main() {
     expect(episodeLabelFromVideoId('tt0903747:1:3'), 'T1 E3');
     expect(episodeLabelFromVideoId('tt0133093'), isNull);
     expect(episodeLabelFromVideoId('x:a:b'), isNull);
+    // Solo los ids de IMDb llevan temporada y episodio: en otros, el número
+    // del medio es el id de la serie, no una temporada.
+    expect(episodeLabelFromVideoId('kitsu:7442:5'), isNull);
+    expect(episodeLabelFromVideoId('tmdb:1399:2'), isNull);
+    expect(episodeLabelFromVideoId('tt0903747:0:2'), 'T0 E2');
     expect(episodeLabel(2, 10), 'T2 E10');
     expect(episodeLabel(2, null), isNull);
   });

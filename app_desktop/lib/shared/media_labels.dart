@@ -16,15 +16,17 @@ String? episodeLabel(int? season, int? episode) {
   return 'T$season E$episode';
 }
 
-/// Saca «T1 E3» de un id de episodio con la forma `tt0903747:1:3`; `null` si
-/// el id no tiene esa forma.
+/// Saca «T1 E3» de un id de episodio de IMDb con la forma `tt0903747:1:3`;
+/// `null` para cualquier otro id. Otros catálogos arman el id distinto (por
+/// ejemplo `kitsu:7442:5` lleva el id de la serie en el medio), así que de ahí
+/// no se puede saber la temporada.
 String? episodeLabelFromVideoId(String videoId) {
-  final parts = videoId.split(':');
-  if (parts.length < 3) return null;
-  final season = int.tryParse(parts[parts.length - 2]);
-  final episode = int.tryParse(parts.last);
-  return episodeLabel(season, episode);
+  final match = _imdbEpisodeId.firstMatch(videoId);
+  if (match == null) return null;
+  return episodeLabel(int.parse(match.group(1)!), int.parse(match.group(2)!));
 }
+
+final RegExp _imdbEpisodeId = RegExp(r'^tt\d+:(\d+):(\d+)$');
 
 /// Por qué falló un addon, en una frase corta. No incluye la URL del addon.
 String failureText(AddonException error) => switch (error.reason) {

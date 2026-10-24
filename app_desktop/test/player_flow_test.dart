@@ -628,5 +628,44 @@ void main() {
         expect(nextVideo(meta, null), isNull);
       },
     );
+
+    test('no ofrece un episodio que todavía no salió', () {
+      final meta = _breakingBad();
+      final byId = {for (final v in meta.videos) v.id: v};
+      final current = byId['tt0903747:1:1']!;
+      final next = byId['tt0903747:1:2']!;
+      // Los episodios de prueba salieron en enero de 2008.
+      expect(next.released, isNotNull);
+
+      expect(
+        nextVideo(
+          meta,
+          current,
+          now: next.released!.add(const Duration(days: 1)),
+        )?.id,
+        next.id,
+      );
+      expect(
+        nextVideo(
+          meta,
+          current,
+          now: next.released!.subtract(const Duration(days: 1)),
+        ),
+        isNull,
+      );
+    });
+
+    test('un episodio sin fecha se ofrece', () {
+      final meta = Meta.fromJson({
+        'id': 'tt1',
+        'type': 'series',
+        'name': 'Serie',
+        'videos': [
+          {'id': 'tt1:1:1', 'season': 1, 'episode': 1},
+          {'id': 'tt1:1:2', 'season': 1, 'episode': 2},
+        ],
+      });
+      expect(nextVideo(meta, meta.videos.first)?.id, 'tt1:1:2');
+    });
   });
 }

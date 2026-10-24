@@ -97,8 +97,9 @@ List<core.Video> orderedEpisodes(Meta meta) {
   return list;
 }
 
-/// El episodio que sigue a [current] en [meta].
-core.Video? nextVideo(Meta meta, core.Video? current) {
+/// El episodio que sigue a [current] en [meta]. No ofrece uno que todavía no
+/// salió (su fecha es posterior a [now], que por defecto es ahora).
+core.Video? nextVideo(Meta meta, core.Video? current, {DateTime? now}) {
   if (current == null) return null;
   final list = orderedEpisodes(meta);
   final at = list.indexWhere((v) => v.id == current.id);
@@ -106,5 +107,7 @@ core.Video? nextVideo(Meta meta, core.Video? current) {
   final next = list[at + 1];
   // De la última temporada normal no se salta a los especiales.
   if ((next.season ?? 1) == 0 && (current.season ?? 1) != 0) return null;
+  final released = next.released;
+  if (released != null && released.isAfter(now ?? DateTime.now())) return null;
   return next;
 }
