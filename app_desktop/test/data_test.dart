@@ -77,6 +77,74 @@ void main() {
       expect(again.value.onboardingCompleted, isTrue);
     });
 
+    test('los valores por defecto son los de reproducción sin fricción', () {
+      const defaults = AppSettings();
+      expect(defaults.audioLanguage, 'original');
+      expect(defaults.subtitleLanguage, 'latam');
+      expect(defaults.autoSelectSource, isTrue);
+      expect(defaults.quality, QualityPreference.p1080);
+      expect(defaults.openFullScreen, isTrue);
+      expect(defaults.tmdbApiKey, isNull);
+    });
+
+    test(
+      'migración: «sin preferencia» de la versión 1 pasa a los defaults',
+      () async {
+        final path = '${dir.path}/settings.json';
+        File(path).writeAsStringSync(
+          '{"version":1,"onboardingCompleted":true,'
+          '"audioLanguage":null,"subtitleLanguage":null}',
+        );
+        final store = await SettingsStore.open(path);
+        expect(store.value.audioLanguage, 'original');
+        expect(store.value.subtitleLanguage, 'latam');
+        expect(store.value.onboardingCompleted, isTrue);
+      },
+    );
+
+    test(
+      'migración: lo que el usuario eligió en la versión 1 se respeta',
+      () async {
+        final path = '${dir.path}/settings.json';
+        File(path).writeAsStringSync(
+          '{"version":1,"audioLanguage":"eng","subtitleLanguage":null}',
+        );
+        final store = await SettingsStore.open(path);
+        expect(store.value.audioLanguage, 'eng');
+        expect(store.value.subtitleLanguage, 'latam');
+      },
+    );
+
+    test('desde la versión 2, «sin preferencia» elegido se respeta', () async {
+      final path = '${dir.path}/settings.json';
+      final store = await SettingsStore.open(path);
+      await store.save(
+        store.value.copyWith(audioLanguage: null, subtitleLanguage: null),
+      );
+      final reopened = await SettingsStore.open(path);
+      expect(reopened.value.audioLanguage, isNull);
+      expect(reopened.value.subtitleLanguage, isNull);
+    });
+
+    test('guardan la reproducción y la key de TMDB sin mostrarla', () async {
+      final path = '${dir.path}/settings.json';
+      final store = await SettingsStore.open(path);
+      await store.save(
+        store.value.copyWith(
+          autoSelectSource: false,
+          quality: QualityPreference.p2160,
+          openFullScreen: false,
+          tmdbApiKey: 'clave-secreta-123',
+        ),
+      );
+      final reopened = await SettingsStore.open(path);
+      expect(reopened.value.autoSelectSource, isFalse);
+      expect(reopened.value.quality, QualityPreference.p2160);
+      expect(reopened.value.openFullScreen, isFalse);
+      expect(reopened.value.tmdbApiKey, 'clave-secreta-123');
+      expect('${reopened.value}', isNot(contains('clave-secreta')));
+    });
+
     test('un archivo corrupto arranca por defecto y queda como .bak', () async {
       final path = '${dir.path}/settings.json';
       File(path).writeAsStringSync('{no es json');

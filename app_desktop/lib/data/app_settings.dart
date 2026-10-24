@@ -2,6 +2,14 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:parcel_core/parcel_core.dart' show QualityPreference;
+
+/// Código del audio «Original»: el idioma en que se hizo el contenido.
+const String originalAudioCode = 'original';
+
+/// Código de los subtítulos «Español (Latinoamérica)».
+const String latamSubtitleCode = 'latam';
+
 /// Idiomas que se pueden elegir como preferidos, con el código de 3 letras que
 /// entiende `languagesMatch` del core.
 const List<({String code, String label})> preferredLanguageOptions = [
@@ -10,30 +18,68 @@ const List<({String code, String label})> preferredLanguageOptions = [
   (code: 'por', label: 'Portugués'),
 ];
 
+/// Opciones del idioma del audio: «Original» y los idiomas de siempre.
+const List<({String code, String label})> audioLanguageOptions = [
+  (code: originalAudioCode, label: 'Original'),
+  ...preferredLanguageOptions,
+];
+
+/// Opciones del idioma de los subtítulos: español de Latinoamérica primero.
+const List<({String code, String label})> subtitleLanguageOptions = [
+  (code: latamSubtitleCode, label: 'Español (Latinoamérica)'),
+  ...preferredLanguageOptions,
+];
+
+/// Versión del formato de `settings.json`. La 2 distingue «sin preferencia»
+/// (elegido) de «nunca elegí»: en la 1 los dos eran `null`.
+const int settingsVersion = 2;
+
 const Object _keep = Object();
 
 /// Ajustes de la app que se guardan en disco.
 class AppSettings {
   const AppSettings({
     this.onboardingCompleted = false,
-    this.audioLanguage,
-    this.subtitleLanguage,
+    this.audioLanguage = originalAudioCode,
+    this.subtitleLanguage = latamSubtitleCode,
+    this.autoSelectSource = true,
+    this.quality = QualityPreference.p1080,
+    this.openFullScreen = true,
+    this.tmdbApiKey,
   });
 
   /// El usuario ya terminó el asistente de migración.
   final bool onboardingCompleted;
 
-  /// Idioma preferido del audio; `null` es «sin preferencia».
+  /// Idioma preferido del audio (`original` o un código); `null` es «sin
+  /// preferencia».
   final String? audioLanguage;
 
-  /// Idioma preferido de los subtítulos; `null` es «sin preferencia».
+  /// Idioma preferido de los subtítulos (`latam` o un código); `null` es «sin
+  /// preferencia».
   final String? subtitleLanguage;
 
-  /// Copia con cambios. Los idiomas aceptan `null` para quitar la preferencia.
+  /// Parcel elige sola la fuente al dar play.
+  final bool autoSelectSource;
+
+  /// Calidad que prefiere al elegir la fuente.
+  final QualityPreference quality;
+
+  /// El reproductor abre en pantalla completa.
+  final bool openFullScreen;
+
+  /// Key de TMDB (opcional); `null` si no puso ninguna.
+  final String? tmdbApiKey;
+
+  /// Copia con cambios. Los idiomas y la key aceptan `null` para quitarlos.
   AppSettings copyWith({
     bool? onboardingCompleted,
     Object? audioLanguage = _keep,
     Object? subtitleLanguage = _keep,
+    bool? autoSelectSource,
+    QualityPreference? quality,
+    bool? openFullScreen,
+    Object? tmdbApiKey = _keep,
   }) {
     return AppSettings(
       onboardingCompleted: onboardingCompleted ?? this.onboardingCompleted,
@@ -43,26 +89,54 @@ class AppSettings {
       subtitleLanguage: identical(subtitleLanguage, _keep)
           ? this.subtitleLanguage
           : subtitleLanguage as String?,
+      autoSelectSource: autoSelectSource ?? this.autoSelectSource,
+      quality: quality ?? this.quality,
+      openFullScreen: openFullScreen ?? this.openFullScreen,
+      tmdbApiKey: identical(tmdbApiKey, _keep)
+          ? this.tmdbApiKey
+          : tmdbApiKey as String?,
     );
   }
 
   /// Lee los ajustes; lo que falta o no tiene el tipo esperado queda por
   /// defecto.
+  ///
+  /// Migración: en la versión 1 «sin preferencia» y «nunca elegí» se guardaban
+  /// igual (`null`); un `null` de esa versión pasa a los idiomas por defecto
+  /// nuevos. Desde la versión 2, `null` es una elección y se respeta.
   factory AppSettings.fromJson(Map<String, dynamic> json) {
-    String? language(Object? value) =>
-        value is String && value.trim().isNotEmpty ? value : null;
+    final version = json['version'] is int ? json['version'] as int : 1;
+    String? language(String key, String fallback) {
+      final value = json[key];
+      if (value is String && value.trim().isNotEmpty) return value;
+      if (version >= 2 && json.containsKey(key) && value == null) return null;
+      return fallback;
+    }
+
+    final tmdb = json['tmdbApiKey'];
+    final quality = json['quality'];
     return AppSettings(
       onboardingCompleted: json['onboardingCompleted'] == true,
-      audioLanguage: language(json['audioLanguage']),
-      subtitleLanguage: language(json['subtitleLanguage']),
+      audioLanguage: language('audioLanguage', originalAudioCode),
+      subtitleLanguage: language('subtitleLanguage', latamSubtitleCode),
+      autoSelectSource: json['autoSelectSource'] != false,
+      quality:
+          QualityPreference.values.asNameMap()[quality] ??
+          QualityPreference.p1080,
+      openFullScreen: json['openFullScreen'] != false,
+      tmdbApiKey: tmdb is String && tmdb.trim().isNotEmpty ? tmdb.trim() : null,
     );
   }
 
   Map<String, dynamic> toJson() => {
-    'version': 1,
+    'version': settingsVersion,
     'onboardingCompleted': onboardingCompleted,
     'audioLanguage': audioLanguage,
     'subtitleLanguage': subtitleLanguage,
+    'autoSelectSource': autoSelectSource,
+    'quality': quality.name,
+    'openFullScreen': openFullScreen,
+    'tmdbApiKey': tmdbApiKey,
   };
 
   @override
@@ -70,11 +144,29 @@ class AppSettings {
       other is AppSettings &&
       other.onboardingCompleted == onboardingCompleted &&
       other.audioLanguage == audioLanguage &&
-      other.subtitleLanguage == subtitleLanguage;
+      other.subtitleLanguage == subtitleLanguage &&
+      other.autoSelectSource == autoSelectSource &&
+      other.quality == quality &&
+      other.openFullScreen == openFullScreen &&
+      other.tmdbApiKey == tmdbApiKey;
 
   @override
-  int get hashCode =>
-      Object.hash(onboardingCompleted, audioLanguage, subtitleLanguage);
+  int get hashCode => Object.hash(
+    onboardingCompleted,
+    audioLanguage,
+    subtitleLanguage,
+    autoSelectSource,
+    quality,
+    openFullScreen,
+    tmdbApiKey,
+  );
+
+  /// No incluye la key de TMDB.
+  @override
+  String toString() =>
+      'AppSettings(audio=$audioLanguage subs=$subtitleLanguage '
+      'auto=$autoSelectSource quality=${quality.name} '
+      'fullscreen=$openFullScreen tmdb=${tmdbApiKey != null})';
 }
 
 /// Guarda [AppSettings] en un archivo JSON con escritura atómica (archivo

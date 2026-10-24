@@ -177,6 +177,25 @@ class AppSettingsNotifier extends Notifier<AppSettings> {
 
   Future<void> setSubtitleLanguage(String? code) =>
       _update(state.copyWith(subtitleLanguage: code));
+
+  Future<void> setAutoSelectSource(bool value) =>
+      _update(state.copyWith(autoSelectSource: value));
+
+  Future<void> setQuality(QualityPreference value) =>
+      _update(state.copyWith(quality: value));
+
+  Future<void> setOpenFullScreen(bool value) =>
+      _update(state.copyWith(openFullScreen: value));
+
+  /// Una key vacía la quita.
+  Future<void> setTmdbApiKey(String? key) {
+    final trimmed = key?.trim();
+    return _update(
+      state.copyWith(
+        tmdbApiKey: trimmed == null || trimmed.isEmpty ? null : trimmed,
+      ),
+    );
+  }
 }
 
 /// Borra todos los datos y vuelve a abrir la app como la primera vez.
