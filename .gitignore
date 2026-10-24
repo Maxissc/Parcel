@@ -1,0 +1,42 @@
+# Dart / Flutter
+.dart_tool/
+.packages
+.pub-cache/
+.pub/
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
+doc/api/
+*.g.dart.bak
+coverage/
+
+# Flutter desktop: archivos generados por las herramientas
+**/windows/flutter/ephemeral/
+**/linux/flutter/ephemeral/
+**/macos/Flutter/ephemeral/
+**/macos/Flutter/GeneratedPluginRegistrant.swift
+**/Flutter/ephemeral/
+
+# Empaquetado
+*.msix
+*.appx
+
+# IDEs
+.idea/
+*.iml
+.vscode/*
+!.vscode/settings.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# Sistema
+.DS_Store
+Thumbs.db
+
+# Secretos
+.env
+.env.*
+*.pfx
+*.p12
+*.pem
+*.key
