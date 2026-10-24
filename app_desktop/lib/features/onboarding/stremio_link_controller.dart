@@ -22,6 +22,9 @@ enum LinkPhase {
   /// El código venció.
   expired,
 
+  /// Se aprobó el código pero no se pudieron leer los addons.
+  fetchFailed,
+
   /// Algo falló; [LinkState.message] dice qué.
   error,
 }
@@ -57,12 +60,11 @@ class StremioLinkController extends Notifier<LinkState> {
   /// que llegan tarde de un intento anterior.
   int _attempt = 0;
 
+  /// No arranca solo: quien muestra la pestaña llama a [start] al entrar, así
+  /// que hay un único pedido de código por entrada.
   @override
   LinkState build() {
     ref.onDispose(_stop);
-    Future.microtask(() {
-      if (ref.mounted) start();
-    });
     return const LinkState();
   }
 
@@ -77,6 +79,7 @@ class StremioLinkController extends Notifier<LinkState> {
   /// Frena la espera (por ejemplo, al pasar a la pestaña de email).
   void cancel() {
     _stop();
+    ref.read(onboardingProvider.notifier).cancelFetch();
     if (ref.mounted) state = const LinkState();
   }
 
@@ -104,7 +107,7 @@ class StremioLinkController extends Notifier<LinkState> {
     _poll = client
         .pollLinkCode(code.code, timeout: linkCodeLifetime)
         .listen(
-          (authKey) => unawaited(_approved(attempt, authKey)),
+          (authKey) => unawaited(_approved(attempt, client, authKey)),
           onError: (Object error) => _failed(attempt, error),
         );
   }
@@ -149,8 +152,16 @@ class StremioLinkController extends Notifier<LinkState> {
     );
   }
 
-  Future<void> _approved(int attempt, String authKey) async {
-    if (attempt != _attempt || !ref.mounted) return;
+  Future<void> _approved(
+    int attempt,
+    StremioAccountClient client,
+    String authKey,
+  ) async {
+    if (attempt != _attempt || !ref.mounted) {
+      // Se canceló justo cuando se aprobaba: la sesión no se deja abierta.
+      await client.logout(authKey);
+      return;
+    }
     _countdown?.cancel();
     state = LinkState(phase: LinkPhase.fetching, code: state.code);
     try {
@@ -158,9 +169,15 @@ class StremioLinkController extends Notifier<LinkState> {
           .read(onboardingProvider.notifier)
           .fetchStremioWithAuthKey(authKey);
     } on AccountException catch (e) {
-      if (attempt == _attempt && ref.mounted) {
-        state = LinkState(phase: LinkPhase.error, message: e.message);
-      }
+      _fetchFailed(attempt, e.message);
+    } on Object {
+      _fetchFailed(attempt, 'No pudimos leer tus addons. Probá de nuevo.');
+    }
+  }
+
+  void _fetchFailed(int attempt, String message) {
+    if (attempt == _attempt && ref.mounted) {
+      state = LinkState(phase: LinkPhase.fetchFailed, message: message);
     }
   }
 }

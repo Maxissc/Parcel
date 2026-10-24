@@ -24,17 +24,25 @@ class StremioStep extends ConsumerStatefulWidget {
 class _StremioStepState extends ConsumerState<StremioStep>
     with SingleTickerProviderStateMixin {
   late final TabController _tabs = TabController(length: 2, vsync: this);
+  final FocusNode _emailFocus = FocusNode(debugLabel: 'stremio-email');
   int _lastIndex = 0;
 
   @override
   void initState() {
     super.initState();
     _tabs.addListener(_onTab);
+    // El controlador del código vive mientras dure este paso (y no mientras la
+    // pestaña esté en pantalla), y pide un código al entrar a la pestaña.
+    ref.listenManual(stremioLinkProvider, (_, _) {});
+    Future.microtask(() {
+      if (mounted) unawaited(ref.read(stremioLinkProvider.notifier).start());
+    });
   }
 
   @override
   void dispose() {
     _tabs.dispose();
+    _emailFocus.dispose();
     super.dispose();
   }
 
@@ -47,6 +55,10 @@ class _StremioStepState extends ConsumerState<StremioStep>
       unawaited(link.start());
     } else {
       link.cancel();
+      // Ya con la pestaña a la vista, el cursor va al email.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _tabs.index == 1) _emailFocus.requestFocus();
+      });
     }
   }
 
@@ -78,6 +90,7 @@ class _StremioStepState extends ConsumerState<StremioStep>
                   child: AccountForm(
                     submitLabel: 'Traer addons',
                     autofocus: false,
+                    emailFocus: _emailFocus,
                     note:
                         'Si entrás a Stremio con Google o Facebook, usá el '
                         'código.',
@@ -118,6 +131,13 @@ class _CodeTab extends ConsumerWidget {
               label: const Text('Generar otro'),
             ),
           ],
+        );
+      case LinkPhase.fetchFailed:
+        return ErrorState(
+          title: 'No pudimos traer tus addons',
+          message: '${link.message ?? 'Probá de nuevo.'} Generá un código '
+              'nuevo para reintentar.',
+          onRetry: controller.start,
         );
       case LinkPhase.error:
         return ErrorState(

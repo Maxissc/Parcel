@@ -13,10 +13,14 @@ class AccountForm extends StatefulWidget {
     required this.submitLabel,
     required this.onSubmit,
     this.autofocus = true,
+    this.emailFocus,
     this.note,
   });
 
   final String submitLabel;
+
+  /// Para poder llevar el foco al email desde afuera.
+  final FocusNode? emailFocus;
 
   /// Hace el login y lo que siga. Si lanza [AccountException], el formulario
   /// muestra el mensaje; si termina bien, no hace nada más.
@@ -89,6 +93,7 @@ class _AccountFormState extends State<AccountForm> {
           TextField(
             key: const Key('account-email'),
             controller: _email,
+            focusNode: widget.emailFocus,
             autofocus: widget.autofocus,
             enabled: !_busy,
             keyboardType: TextInputType.emailAddress,

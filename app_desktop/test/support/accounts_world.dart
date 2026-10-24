@@ -32,6 +32,9 @@ MockClient stremioWorld({
   int pendingReads = 0,
   Object? loginError,
   ManifestRoutes? routes,
+  Future<void>? loginGate,
+  Future<void>? collectionGate,
+  bool collectionFails = false,
 }) {
   var reads = 0;
   final base = mockWorld(routes ?? defaultRoutes());
@@ -62,12 +65,15 @@ MockClient stremioWorld({
     if (url.host == 'api.strem.io') {
       switch (url.path) {
         case '/api/login':
+          await loginGate;
           return loginError != null
               ? jsonResponse({'error': loginError})
               : jsonResponse({
                   'result': {'authKey': 'fake-auth-key'},
                 });
         case '/api/addonCollectionGet':
+          await collectionGate;
+          if (collectionFails) return http.Response('error', 500);
           return jsonResponse({
             'result': {'addons': addons},
           });
@@ -87,6 +93,8 @@ MockClient nuvioWorld({
   required List<Map<String, dynamic>> rows,
   bool badCredentials = false,
   ManifestRoutes? routes,
+  Future<void>? loginGate,
+  bool addonsFail = false,
 }) {
   final base = mockWorld(routes ?? defaultRoutes());
   return MockClient((request) async {
@@ -102,6 +110,7 @@ MockClient nuvioWorld({
             'publishable_key': 'fake-publishable-key',
           });
         case '/auth/v1/token':
+          await loginGate;
           return badCredentials
               ? jsonResponse({
                   'code': 400,
@@ -113,6 +122,7 @@ MockClient nuvioWorld({
                   'refresh_token': 'fake-refresh-token',
                 });
         case '/rest/v1/addons':
+          if (addonsFail) return http.Response('error', 500);
           return jsonResponse(rows);
         case '/auth/v1/logout':
           return http.Response('', 204);

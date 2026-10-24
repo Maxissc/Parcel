@@ -65,9 +65,8 @@ class _AddAddonDialogState extends ConsumerState<_AddAddonDialog> {
           return;
         case AlreadyInstalled(:final existing):
           error = 'Ya tenés instalado ${existing.manifest.name}.';
-        case InstallFailed(:final error):
-          setState(() => _error = describeInstallFailure(error));
-          return;
+        case InstallFailed(error: final failure):
+          error = describeInstallFailure(failure);
       }
     } on FileSystemException {
       error = 'No pudimos guardar el cambio en el disco.';

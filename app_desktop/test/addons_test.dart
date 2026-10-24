@@ -208,7 +208,16 @@ void main() {
           tester,
           find.text('El addon respondió con un error (HTTP 404).'),
         );
-        expect(find.byKey(const Key('add-addon-url')), findsOneWidget);
+        // Tras la falla se puede corregir y volver a probar.
+        final field = tester.widget<TextField>(
+          find.byKey(const Key('add-addon-url')),
+        );
+        expect(field.enabled, isTrue);
+        final submit = tester.widget<FilledButton>(
+          find.byKey(const Key('add-addon-submit')),
+        );
+        expect(submit.onPressed, isNotNull);
+        expect(find.text('Agregando…'), findsNothing);
       },
     );
 

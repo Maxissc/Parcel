@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:parcel_core/parcel_core.dart';
@@ -130,6 +131,8 @@ class OnboardingController extends Notifier<OnboardingState> {
   /// si sale del asistente). Devuelve `false` si no había adónde volver.
   bool back() {
     if (state.importing) return false;
+    // Lo que todavía se esté trayendo de una cuenta deja de importar.
+    _fetch++;
     switch (state.step) {
       case OnboardingStep.welcome:
       case OnboardingStep.progress:
@@ -139,7 +142,7 @@ class OnboardingController extends Notifier<OnboardingState> {
         _goTo(OnboardingStep.welcome, state.copyWith(plan: null));
       case OnboardingStep.nuvio:
         // Con el selector de perfil abierto, «Atrás» vuelve al formulario.
-        if (state.plan != null) {
+        if ((state.plan?.profileIds.length ?? 0) > 1) {
           state = state.copyWith(plan: null, profileId: null);
         } else {
           _goTo(OnboardingStep.welcome);
@@ -160,6 +163,7 @@ class OnboardingController extends Notifier<OnboardingState> {
           step == OnboardingStep.nuvio ||
           step == OnboardingStep.paste,
     );
+    _fetch++;
     _goTo(step, state.copyWith(plan: null, profileId: null));
   }
 
@@ -168,26 +172,52 @@ class OnboardingController extends Notifier<OnboardingState> {
   List<InstalledAddon> get _installed =>
       ref.read(addonRepositoryProvider).addons;
 
+  /// Se suma al empezar a traer una cuenta y al cancelar (Atrás o cambiar de
+  /// fuente): así se sabe si una respuesta que llega tarde ya no se quiere.
+  int _fetch = 0;
+
+  bool _isStale(int fetch) => fetch != _fetch || !ref.mounted;
+
+  /// Descarta lo que se esté trayendo de una cuenta, sin cambiar de paso.
+  void cancelFetch() => _fetch++;
+
   /// Trae los addons de Stremio con email y contraseña. Lanza
   /// [AccountException] con un mensaje para la UI si algo falla.
   Future<void> fetchStremioWithPassword(String email, String password) async {
+    final fetch = ++_fetch;
     final client = ref.read(stremioAccountClientProvider);
     final authKey = await client.login(email.trim(), password);
-    if (!ref.mounted) return;
-    await fetchStremioWithAuthKey(authKey);
+    if (_isStale(fetch)) {
+      // Se canceló mientras se entraba: la sesión no se deja abierta.
+      await client.logout(authKey);
+      return;
+    }
+    await _loadStremio(client, authKey, fetch);
   }
 
   /// Trae los addons de Stremio con un `authKey` ya obtenido y cierra la
   /// sesión. Lanza [AccountException] si falla.
-  Future<void> fetchStremioWithAuthKey(String authKey) async {
-    final client = ref.read(stremioAccountClientProvider);
+  Future<void> fetchStremioWithAuthKey(String authKey) {
+    final fetch = ++_fetch;
+    return _loadStremio(
+      ref.read(stremioAccountClientProvider),
+      authKey,
+      fetch,
+    );
+  }
+
+  Future<void> _loadStremio(
+    StremioAccountClient client,
+    String authKey,
+    int fetch,
+  ) async {
     final List<StremioAddonEntry> entries;
     try {
       entries = await client.getAddonCollection(authKey);
     } finally {
       await client.logout(authKey);
     }
-    if (!ref.mounted) return;
+    if (_isStale(fetch)) return;
     _setPlan(MigrationPlan.fromStremio(entries, installed: _installed));
   }
 
@@ -195,16 +225,20 @@ class OnboardingController extends Notifier<OnboardingState> {
   /// el paso de Nuvio para que el usuario elija. Lanza [AccountException] si
   /// falla.
   Future<void> fetchNuvio(String email, String password) async {
+    final fetch = ++_fetch;
     final client = ref.read(nuvioAccountClientProvider);
     final session = await client.login(email.trim(), password);
-    if (!ref.mounted) return;
+    if (_isStale(fetch)) {
+      await client.logout(session);
+      return;
+    }
     final List<NuvioAddon> rows;
     try {
       rows = await client.getAddons(session);
     } finally {
       await client.logout(session);
     }
-    if (!ref.mounted) return;
+    if (_isStale(fetch)) return;
     _setPlan(MigrationPlan.fromNuvio(rows, installed: _installed));
   }
 
@@ -355,10 +389,26 @@ class OnboardingController extends Notifier<OnboardingState> {
     MigrationPlan plan,
     MigrationCandidate candidate,
   ) async {
-    final report = await ref.read(migrationServiceProvider).apply(plan, [
-      candidate,
-    ]);
-    return report.items;
+    try {
+      final report = await ref.read(migrationServiceProvider).apply(plan, [
+        candidate,
+      ]);
+      return report.items;
+    } on Object catch (e) {
+      // Una falla inesperada (por ejemplo, el disco) no corta la instalación:
+      // queda como fallido y se puede reintentar. El texto no lleva datos del
+      // error, que podrían incluir rutas o URLs.
+      _diag.log('onboarding fallo al instalar tipo=${e.runtimeType}');
+      return [
+        MigrationItemReport(
+          candidate,
+          MigrationOutcome.failed,
+          e is FileSystemException
+              ? 'No se pudo guardar en disco.'
+              : 'No se pudo instalar este addon.',
+        ),
+      ];
+    }
   }
 
   /// Nombre y host del addon para el log; nunca la URL completa.
