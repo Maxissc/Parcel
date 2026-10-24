@@ -206,6 +206,16 @@ void main() {
       expect((await open()).get('movie', 'tt1', 'tt1'), isNotNull);
     });
 
+    test('bytes que no son UTF-8 cuentan como corrupto', () async {
+      final bytes = [0xff, 0xfe, 0x00, 0x7b, 0xc3];
+      File(filePath)
+        ..createSync(recursive: true)
+        ..writeAsBytesSync(bytes);
+      final repo = await open();
+      expect(repo.inProgress(), isEmpty);
+      expect(File('$filePath.bak').readAsBytesSync(), bytes);
+    });
+
     test('descarta solo las entradas inválidas del archivo', () async {
       final repo = await open();
       await repo.save(_p('tt1'));

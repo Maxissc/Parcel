@@ -289,6 +289,16 @@ void main() {
       expect(File('$filePath.bak').readAsStringSync(), '{esto no es json');
     });
 
+    test('bytes que no son UTF-8 cuentan como corrupto', () async {
+      final bytes = [0xff, 0xfe, 0x00, 0x7b, 0xc3];
+      File(filePath)
+        ..createSync(recursive: true)
+        ..writeAsBytesSync(bytes);
+      final repo = await open();
+      expect(repo.addons, isEmpty);
+      expect(File('$filePath.bak').readAsBytesSync(), bytes);
+    });
+
     test(
       'un JSON válido con otra forma también se conserva como .bak',
       () async {
