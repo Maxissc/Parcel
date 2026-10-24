@@ -25,6 +25,13 @@ import '../../playback/playback_errors.dart';
 ///   los resultados.
 /// - `PARCEL_DIAG_PLAY_FIRST_STREAM=1`: con `PARCEL_DIAG_OPEN`, reproduce el
 ///   primer stream reproducible que aparezca.
+/// - `PARCEL_DIAG_AUTOPLAY=1`: con `PARCEL_DIAG_OPEN`, hace lo mismo que el
+///   botón «Ver» (elige la fuente sola, salteando las rotas).
+/// - `PARCEL_DIAG_SYNC_TAPS`: segundos separados por coma (por ejemplo
+///   `12.0,35.5`); con el reproductor andando, marca esas posiciones en el
+///   asistente de sincronización de subtítulos y deja el resultado en el log.
+/// - `PARCEL_DIAG_MIN_PROBE_BYTES`: tamaño mínimo con el que la prueba de
+///   fuentes acepta un video (por defecto 20 MB; una muestra chica necesita 0).
 class DiagnosticsConfig {
   const DiagnosticsConfig({
     this.url,
@@ -36,6 +43,9 @@ class DiagnosticsConfig {
     this.open,
     this.search,
     this.playFirstStream = false,
+    this.autoplay = false,
+    this.syncTaps = const [],
+    this.probeMinBytes,
   });
 
   final String? url;
@@ -53,6 +63,13 @@ class DiagnosticsConfig {
   /// Texto a buscar; `null` si no hay.
   final String? search;
   final bool playFirstStream;
+  final bool autoplay;
+
+  /// Posiciones a marcar en el asistente de sincronización.
+  final List<Duration> syncTaps;
+
+  /// Tamaño mínimo de la prueba de fuentes; `null` es el normal.
+  final int? probeMinBytes;
 
   /// `null` si no es debug o no está `PARCEL_DIAG`.
   static DiagnosticsConfig? fromEnvironment([Map<String, String>? env]) {
@@ -71,6 +88,13 @@ class DiagnosticsConfig {
       open: nonEmpty(e['PARCEL_DIAG_OPEN']),
       search: nonEmpty(e['PARCEL_DIAG_SEARCH']),
       playFirstStream: e['PARCEL_DIAG_PLAY_FIRST_STREAM'] == '1',
+      autoplay: e['PARCEL_DIAG_AUTOPLAY'] == '1',
+      syncTaps: [
+        for (final part in (e['PARCEL_DIAG_SYNC_TAPS'] ?? '').split(','))
+          if (double.tryParse(part.trim()) case final seconds?)
+            Duration(milliseconds: (seconds * 1000).round()),
+      ],
+      probeMinBytes: int.tryParse(e['PARCEL_DIAG_MIN_PROBE_BYTES'] ?? ''),
     );
   }
 }
