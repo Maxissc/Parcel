@@ -38,6 +38,73 @@ final _addon = InstalledAddon(
 );
 
 void main() {
+  group('cuentas: el timeout aborta el pedido de verdad', () {
+    const short = Duration(milliseconds: 50);
+
+    Future<void> expectNetworkAndAbort(
+      _HangingServer server,
+      Future<Object?> Function() action,
+    ) async {
+      await expectLater(
+        action(),
+        throwsA(
+          isA<AccountException>().having(
+            (e) => e.reason,
+            'reason',
+            AccountFailureReason.network,
+          ),
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(server.started, hasLength(1));
+      expect(server.aborted, server.started);
+    }
+
+    test('Stremio: createLinkCode', () async {
+      final server = _HangingServer();
+      final client = StremioAccountClient(server.client, requestTimeout: short);
+      await expectNetworkAndAbort(server, client.createLinkCode);
+    });
+
+    test('Stremio: login (POST)', () async {
+      final server = _HangingServer();
+      final client = StremioAccountClient(server.client, requestTimeout: short);
+      await expectNetworkAndAbort(server, () => client.login('a@b.c', 'x'));
+    });
+
+    test('Stremio: logout aborta y no lanza', () async {
+      final server = _HangingServer();
+      final client = StremioAccountClient(server.client, requestTimeout: short);
+      await client.logout('key');
+      await Future<void>.delayed(Duration.zero);
+      expect(server.aborted, server.started);
+      expect(server.started, hasLength(1));
+    });
+
+    test('Nuvio: discover', () async {
+      final server = _HangingServer();
+      final client = NuvioAccountClient(server.client, requestTimeout: short);
+      await expectNetworkAndAbort(server, client.discover);
+    });
+
+    test('Nuvio: logout aborta y no lanza', () async {
+      final server = _HangingServer();
+      final client = NuvioAccountClient(server.client, requestTimeout: short);
+      await client.logout(
+        const NuvioSession(
+          service: NuvioService(
+            backendUrl: 'https://x.example.com',
+            publishableKey: 'k',
+          ),
+          accessToken: 't',
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(server.aborted, server.started);
+      expect(server.started, hasLength(1));
+    });
+  });
+
   test('el agregador aborta el pedido cuando vence el timeout', () async {
     final server = _HangingServer();
     final agg = AddonAggregator(
