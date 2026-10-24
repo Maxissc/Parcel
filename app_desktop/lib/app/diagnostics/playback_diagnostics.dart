@@ -4,6 +4,8 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:parcel_core/parcel_core.dart';
 
+import '../../playback/playback_errors.dart';
+
 /// Configuración del modo de diagnóstico del reproductor.
 ///
 /// Solo existe en modo debug. Se activa con la variable de entorno
@@ -101,7 +103,8 @@ class PlaybackDiagnostics {
 
   void _write(String message) {
     final ts = DateTime.now().toIso8601String();
-    _sink('[parcel-diag $ts] $message');
+    // Ninguna línea del diagnóstico puede llevar una URL completa.
+    _sink('[parcel-diag $ts] ${redactUrlsInText(message)}');
   }
 
   /// Empieza a escuchar. Se detiene solo cuando el motor se libera.

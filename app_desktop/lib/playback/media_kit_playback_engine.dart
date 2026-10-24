@@ -5,6 +5,7 @@ import 'package:media_kit/media_kit.dart' as mk;
 import 'package:media_kit_video/media_kit_video.dart' as mkv;
 import 'package:parcel_core/parcel_core.dart';
 
+import 'playback_errors.dart';
 import 'video_surface.dart';
 
 /// [PlaybackEngine] sobre media_kit (libmpv). Es el único lugar que conoce los
@@ -109,7 +110,7 @@ class MediaKitPlaybackEngine implements PlaybackEngine, VideoSurfaceProvider {
       if (platform is! mk.NativePlayer) return;
       await platform.observeProperty(property, (v) async => onValue(v));
     } catch (e) {
-      _log('No se pudo observar $property: $e');
+      _log('No se pudo observar $property: ${redactUrlsInText('$e')}');
     }
   }
 
@@ -168,11 +169,22 @@ class MediaKitPlaybackEngine implements PlaybackEngine, VideoSurfaceProvider {
     // Con el medio ya cargado, los errores que avisa mpv (un subtítulo que no
     // abre, un frame que no decodifica) no cortan la reproducción.
     if (_state.duration > Duration.zero) {
-      _log('Aviso de reproducción: $message');
+      _log('Aviso de reproducción: ${redactUrlsInText(message)}');
       return;
     }
+    _fail(message);
+  }
+
+  /// Deja el error en el estado con un mensaje propio: el texto de mpv puede
+  /// llevar la URL del stream (con claves), así que no se guarda ni se muestra.
+  void _fail(String raw) {
+    _log('Error de reproducción: ${redactUrlsInText(raw)}');
     _update(
-      (st) => st.copyWith(error: message, buffering: false, playing: false),
+      (st) => st.copyWith(
+        error: playbackErrorMessage(raw),
+        buffering: false,
+        playing: false,
+      ),
     );
   }
 
@@ -201,10 +213,7 @@ class MediaKitPlaybackEngine implements PlaybackEngine, VideoSurfaceProvider {
         ),
       );
     } catch (e) {
-      _update(
-        (st) =>
-            st.copyWith(error: e.toString(), buffering: false, playing: false),
-      );
+      _fail(e.toString());
     }
   }
 
@@ -267,7 +276,10 @@ class MediaKitPlaybackEngine implements PlaybackEngine, VideoSurfaceProvider {
     try {
       await _loaded?.future.timeout(loadTimeout);
     } on TimeoutException {
-      _log('No cargó el medio a tiempo; no se agrega el subtítulo $url');
+      _log(
+        'No cargó el medio a tiempo; no se agrega el subtítulo de '
+        '${redactUrlsInText(url)}',
+      );
       return;
     }
     if (_disposed) return;
@@ -302,7 +314,10 @@ class MediaKitPlaybackEngine implements PlaybackEngine, VideoSurfaceProvider {
       }
       await Future<void>.delayed(const Duration(milliseconds: 50));
     }
-    _log('El subtítulo externo no apareció en la lista de pistas: $url');
+    _log(
+      'El subtítulo externo no apareció en la lista de pistas: '
+      '${redactUrlsInText(url)}',
+    );
   }
 
   @override

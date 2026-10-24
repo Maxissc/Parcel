@@ -172,6 +172,19 @@ void main() {
     expect(find.text('Se cortó la conexión'), findsOneWidget);
   });
 
+  testWidgets('la pantalla de error no muestra la URL ni el token', (
+    tester,
+  ) async {
+    final engine = _engine();
+    await _pump(tester, engine);
+    engine.fail('No abre http://127.0.0.1:7000/no-existe?token=SECRETO');
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.textContaining('SECRETO'), findsNothing);
+    expect(find.text('No abre 127.0.0.1:7000'), findsOneWidget);
+  });
+
   testWidgets('los controles se ocultan a los 3 s y vuelven con el mouse', (
     tester,
   ) async {

@@ -37,6 +37,30 @@ void main() {
     expect(log, contains('ERROR boom'));
   });
 
+  test('un error con una URL no deja el token en el log', () async {
+    final engine = FakePlaybackEngine(
+      mediaDuration: const Duration(minutes: 1),
+    );
+    final lines = <String>[];
+    final diag = PlaybackDiagnostics(
+      engine,
+      config: const DiagnosticsConfig(),
+      sink: lines.add,
+    )..start();
+
+    engine.fail(
+      'Failed to open http://127.0.0.1:7000/no-existe?token=SECRETO.',
+    );
+    await Future<void>.delayed(Duration.zero);
+    diag.stop();
+    await engine.dispose();
+
+    final log = lines.join('\n');
+    expect(log, contains('ERROR'));
+    expect(log, isNot(contains('SECRETO')));
+    expect(log, contains('127.0.0.1:7000'));
+  });
+
   test('sin PARCEL_DIAG no hay configuración', () {
     expect(DiagnosticsConfig.fromEnvironment({}), isNull);
   });

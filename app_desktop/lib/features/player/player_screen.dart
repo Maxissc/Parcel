@@ -6,6 +6,7 @@ import 'package:parcel_core/parcel_core.dart';
 
 import '../../app/theme.dart';
 import '../../data/platform.dart';
+import '../../playback/playback_errors.dart';
 import '../../playback/video_surface.dart';
 import 'player_controls.dart';
 import 'track_preferences.dart';
@@ -562,7 +563,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
             ),
           if (hasError)
             _ErrorOverlay(
-              message: state.error!,
+              message: redactUrlsInText(state.error!),
               onRetry: _retry,
               onBack: _back,
             ),
