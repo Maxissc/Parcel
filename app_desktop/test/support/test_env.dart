@@ -100,10 +100,11 @@ Future<ProviderContainer> openContainer(
 }
 
 /// Lee los nombres de los addons guardados en disco, sin pasar por la app.
-Future<List<String>> savedAddonNames(Directory dir) async {
+/// Es síncrono a propósito: los tests de widgets no avanzan el disco asíncrono.
+List<String> savedAddonNames(Directory dir) {
   final file = File('${dir.path}${Platform.pathSeparator}addons.json');
   if (!file.existsSync()) return [];
-  final json = jsonDecode(await file.readAsString()) as Map<String, dynamic>;
+  final json = jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
   return [
     for (final a in json['addons'] as List)
       ((a as Map)['manifest'] as Map)['name'] as String,

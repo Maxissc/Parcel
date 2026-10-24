@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../features/onboarding/onboarding_controller.dart';
 import '../../features/player/player_route.dart';
 import '../router.dart';
 import 'diag_log.dart';
@@ -39,6 +40,8 @@ class _DiagnosticsDriverState extends ConsumerState<DiagnosticsDriver> {
     }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
+      final paste = config.paste;
+      if (paste != null) unawaited(_runPaste(paste));
       final url = config.url;
       if (url != null) {
         unawaited(
@@ -55,6 +58,23 @@ class _DiagnosticsDriverState extends ConsumerState<DiagnosticsDriver> {
         );
       }
     });
+  }
+
+  /// Completa el asistente como si el usuario pegara [text] y confirmara.
+  /// El asistente deja el informe en el log (líneas `[diag]`).
+  Future<void> _runPaste(String text) async {
+    ref.read(diagLogProvider).log('diagnóstico: pega la lista y confirma');
+    // Mantiene vivo el estado del asistente mientras corre.
+    final keepAlive = ref.listenManual(onboardingProvider, (_, _) {});
+    try {
+      ref.read(routerProvider).go(Routes.onboarding);
+      final controller = ref.read(onboardingProvider.notifier)
+        ..chooseSource(OnboardingStep.paste)
+        ..submitPaste(text);
+      await controller.importSelected();
+    } finally {
+      keepAlive.close();
+    }
   }
 
   @override

@@ -98,18 +98,14 @@ void main() {
         container.read(installedAddonsProvider).map((a) => a.manifest.name),
         ['Cinemeta', 'Torrent'],
       );
-      expect(await savedAddonNames(dir), ['Cinemeta', 'Torrent']);
+      expect(savedAddonNames(dir), ['Cinemeta', 'Torrent']);
 
       await notifier.restore(subtitles, index);
       expect(
         container.read(installedAddonsProvider).map((a) => a.manifest.name),
         ['Cinemeta', 'OpenSubtitles v3', 'Torrent'],
       );
-      expect(await savedAddonNames(dir), [
-        'Cinemeta',
-        'OpenSubtitles v3',
-        'Torrent',
-      ]);
+      expect(savedAddonNames(dir), ['Cinemeta', 'OpenSubtitles v3', 'Torrent']);
     });
 
     test('reordenar persiste el nuevo orden', () async {
@@ -123,11 +119,7 @@ void main() {
         container.read(installedAddonsProvider).map((a) => a.manifest.name),
         ['Torrent', 'Cinemeta', 'OpenSubtitles v3'],
       );
-      expect(await savedAddonNames(dir), [
-        'Torrent',
-        'Cinemeta',
-        'OpenSubtitles v3',
-      ]);
+      expect(savedAddonNames(dir), ['Torrent', 'Cinemeta', 'OpenSubtitles v3']);
     });
   });
 
