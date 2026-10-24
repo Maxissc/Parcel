@@ -1,6 +1,8 @@
 /// Lógica de Parcel en Dart puro.
 library;
 
+export 'src/aggregation/addon_aggregator.dart';
+export 'src/aggregation/addon_result.dart';
 export 'src/models/addon_manifest.dart';
 export 'src/models/addon_stream.dart';
 export 'src/models/installed_addon.dart';
