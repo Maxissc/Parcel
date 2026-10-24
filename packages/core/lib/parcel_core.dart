@@ -21,6 +21,7 @@ export 'src/protocol/addon_exception.dart';
 export 'src/protocol/manifest_url.dart';
 export 'src/protocol/redact.dart';
 export 'src/protocol/routes.dart';
+export 'src/subtitles/subtitle_fetcher.dart';
 export 'src/subtitles/subtitle_parser.dart';
 export 'src/storage/addon_repository.dart';
 export 'src/storage/progress_repository.dart';
