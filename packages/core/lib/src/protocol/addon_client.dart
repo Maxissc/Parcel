@@ -140,8 +140,14 @@ class AddonClient {
         'Tiempo agotado',
         url: url,
       );
-    } on Exception catch (e) {
-      throw AddonException(AddonFailureReason.network, '$e', url: url);
+    } on Exception {
+      // El texto de la excepción puede traer la URL completa, con tokens del
+      // usuario: no se copia al mensaje.
+      throw AddonException(
+        AddonFailureReason.network,
+        'No se pudo conectar con el addon',
+        url: url,
+      );
     }
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw AddonException(
