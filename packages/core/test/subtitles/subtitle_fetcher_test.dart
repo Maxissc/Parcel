@@ -44,6 +44,23 @@ void main() {
       );
     });
 
+    test('UTF-16 LE y BE con BOM', () {
+      const text = '1\n00:00:01,000 --> 00:00:02,000\nCanción ñandú\n';
+      final units = text.codeUnits;
+      final le = [
+        0xFF,
+        0xFE,
+        for (final u in units) ...[u & 0xFF, u >> 8],
+      ];
+      final be = [
+        0xFE,
+        0xFF,
+        for (final u in units) ...[u >> 8, u & 0xFF],
+      ];
+      expect(SubtitleFetcher.decode(le), text);
+      expect(SubtitleFetcher.decode(be), text);
+    });
+
     test('Latin-1 cuando hay muchos caracteres inválidos en UTF-8', () {
       final bytes = latin1.encode('Canción de ñandú, además él sabía qué pasó');
       expect(
