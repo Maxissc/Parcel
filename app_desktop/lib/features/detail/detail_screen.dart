@@ -605,7 +605,7 @@ class _Actions extends ConsumerWidget {
       key: const Key('detail-trailer'),
       onPressed: () => unawaited(
         ref.read(urlOpenerProvider)(
-          Uri.parse('https://www.youtube.com/watch?v=${trailers.first.ytId}'),
+          Uri.https('www.youtube.com', '/watch', {'v': trailers.first.ytId}),
         ),
       ),
       icon: const Icon(Icons.smart_display_outlined),
@@ -775,6 +775,15 @@ class _EpisodesState extends ConsumerState<_Episodes> {
                 child: _EpisodeTile(
                   video: video,
                   progress: progressOf(video.id),
+                  // Con la fuente automática, cada episodio ofrece elegir la
+                  // fuente a mano.
+                  onChooseSource:
+                      ref.watch(appSettingsProvider).autoSelectSource
+                      ? () => context.push(
+                          Routes.streams,
+                          extra: StreamsArgs(meta: meta, video: video),
+                        )
+                      : null,
                   onTap: () {
                     if (ref.read(appSettingsProvider).autoSelectSource) {
                       context.push(
@@ -803,11 +812,15 @@ class _EpisodeTile extends StatelessWidget {
     required this.video,
     required this.progress,
     required this.onTap,
+    this.onChooseSource,
   });
 
   final core.Video video;
   final PlaybackProgress? progress;
   final VoidCallback onTap;
+
+  /// Lleva a la lista de streams de este episodio; con `null` no hay botón.
+  final VoidCallback? onChooseSource;
 
   @override
   Widget build(BuildContext context) {
@@ -906,6 +919,13 @@ class _EpisodeTile extends StatelessWidget {
                   ],
                 ),
               ),
+              if (onChooseSource != null)
+                IconButton(
+                  key: Key('episode-choose-source-${video.id}'),
+                  tooltip: 'Elegir fuente',
+                  icon: const Icon(Icons.playlist_play),
+                  onPressed: onChooseSource,
+                ),
             ],
           ),
         ),

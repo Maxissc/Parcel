@@ -30,11 +30,18 @@ final subtitleFetcherFactoryProvider = Provider<SubtitleFetcherFactory>((ref) {
   return (cancel) => SubtitleFetcher(CancellableClient(client, cancel: cancel));
 });
 
-/// Cliente de TMDB con la key de Ajustes, o `null` si no hay key.
-final tmdbClientProvider = Provider<TmdbClient?>((ref) {
+/// Arma el cliente de TMDB con la key de Ajustes, o `null` si no hay key.
+/// Cuando termina `cancel` (se salió de la pantalla que pidió) se abortan los
+/// pedidos en curso.
+typedef TmdbClientFactory = TmdbClient? Function(Future<void> cancel);
+
+final tmdbClientFactoryProvider = Provider<TmdbClientFactory>((ref) {
   final key = ref.watch(appSettingsProvider.select((s) => s.tmdbApiKey));
-  if (key == null || key.trim().isEmpty) return null;
-  return TmdbClient(ref.watch(httpClientProvider), apiKey: key);
+  final client = ref.watch(httpClientProvider);
+  return (cancel) {
+    if (key == null || key.trim().isEmpty) return null;
+    return TmdbClient(CancellableClient(client, cancel: cancel), apiKey: key);
+  };
 });
 
 /// Retraso de subtítulos que el usuario fijó por contenido (`tipo:id del

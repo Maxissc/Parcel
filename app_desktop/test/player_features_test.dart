@@ -204,6 +204,24 @@ void main() {
     expect(find.text('Sincronizar subtítulos… (S)'), findsOneWidget);
   });
 
+  testWidgets('un subtítulo de otra velocidad lleva la etiqueta «Otra '
+      'velocidad (fps)» en el menú', (tester) async {
+    // Dura como 25 fps sobre un video de 23,976: 7200 s × 25 / 23,976.
+    world.routes['subs.example.com/es.srt'] = srt(7510);
+    final fake = FakePlaybackEngine(
+      mediaDuration: const Duration(hours: 2),
+      audioTracks: const [AudioTrack(id: '1', language: 'eng')],
+    );
+    await openPlayer(tester, fake);
+    tester.view.physicalSize = const Size(1280, 1600);
+    await letSubtitlesLoad(tester, fake);
+
+    await tester.tap(find.byKey(const Key('player-subtitle-menu')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Otra velocidad (fps)'), findsOneWidget);
+  });
+
   testWidgets('la barra de progreso muestra el tramo ya cargado', (
     tester,
   ) async {

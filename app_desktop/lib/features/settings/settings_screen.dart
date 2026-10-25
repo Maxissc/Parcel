@@ -13,6 +13,7 @@ import '../../data/app_settings.dart';
 import '../../data/platform.dart';
 import '../../data/providers.dart';
 import '../../shared/page_layout.dart';
+import '../detail/tmdb_enrichment.dart';
 import '../player/player_route.dart';
 import 'try_player_dialog.dart';
 
@@ -40,7 +41,7 @@ class SettingsScreen extends ConsumerWidget {
                   'con la que anda. Si la apagás, elegís de una lista.',
                 ),
                 value: settings.autoSelectSource,
-                onChanged: (v) => _saveLanguage(
+                onChanged: (v) => _saveSetting(
                   context,
                   () => notifier.setAutoSelectSource(v),
                 ),
@@ -54,7 +55,7 @@ class SettingsScreen extends ConsumerWidget {
                   onChanged: (q) {
                     if (q != null) {
                       unawaited(
-                        _saveLanguage(context, () => notifier.setQuality(q)),
+                        _saveSetting(context, () => notifier.setQuality(q)),
                       );
                     }
                   },
@@ -79,7 +80,7 @@ class SettingsScreen extends ConsumerWidget {
                 title: const Text('Abrir en pantalla completa'),
                 value: settings.openFullScreen,
                 onChanged: (v) =>
-                    _saveLanguage(context, () => notifier.setOpenFullScreen(v)),
+                    _saveSetting(context, () => notifier.setOpenFullScreen(v)),
               ),
             ],
           ),
@@ -97,7 +98,7 @@ class SettingsScreen extends ConsumerWidget {
                 title: 'Idioma preferido del audio',
                 options: audioLanguageOptions,
                 value: settings.audioLanguage,
-                onChanged: (code) => _saveLanguage(
+                onChanged: (code) => _saveSetting(
                   context,
                   () => notifier.setAudioLanguage(code),
                 ),
@@ -107,7 +108,7 @@ class SettingsScreen extends ConsumerWidget {
                 title: 'Idioma preferido de los subtítulos',
                 options: subtitleLanguageOptions,
                 value: settings.subtitleLanguage,
-                onChanged: (code) => _saveLanguage(
+                onChanged: (code) => _saveSetting(
                   context,
                   () => notifier.setSubtitleLanguage(code),
                 ),
@@ -120,8 +121,12 @@ class SettingsScreen extends ConsumerWidget {
             children: [
               _TmdbKeyTile(
                 value: settings.tmdbApiKey,
-                onSave: (key) =>
-                    _saveLanguage(context, () => notifier.setTmdbApiKey(key)),
+                invalid: ref.watch(tmdbKeyInvalidProvider),
+                onSave: (key) => _saveSetting(
+                  context,
+                  () => notifier.setTmdbApiKey(key),
+                  confirmation: 'Guardado',
+                ),
                 onOpenSite: () => unawaited(
                   ref.read(urlOpenerProvider)(
                     Uri.parse('https://www.themoviedb.org/settings/api'),
@@ -204,13 +209,26 @@ class SettingsScreen extends ConsumerWidget {
     );
   }
 
-  Future<void> _saveLanguage(
+  /// Guarda un ajuste; si no se puede avisa. Con [confirmation] avisa también
+  /// cuando se guardó.
+  Future<void> _saveSetting(
     BuildContext context,
-    Future<void> Function() save,
-  ) async {
+    Future<void> Function() save, {
+    String? confirmation,
+  }) async {
     final messenger = ScaffoldMessenger.of(context);
     try {
       await save();
+      if (confirmation != null) {
+        messenger
+          ..hideCurrentSnackBar()
+          ..showSnackBar(
+            SnackBar(
+              content: Text(confirmation),
+              duration: const Duration(seconds: 2),
+            ),
+          );
+      }
     } on Object {
       messenger.showSnackBar(
         const SnackBar(
@@ -325,11 +343,15 @@ class _Section extends StatelessWidget {
 class _TmdbKeyTile extends StatefulWidget {
   const _TmdbKeyTile({
     required this.value,
+    required this.invalid,
     required this.onSave,
     required this.onOpenSite,
   });
 
   final String? value;
+
+  /// TMDB rechazó la key guardada.
+  final bool invalid;
   final ValueChanged<String?> onSave;
   final VoidCallback onOpenSite;
 
@@ -349,6 +371,18 @@ class _TmdbKeyTileState extends State<_TmdbKeyTile> {
     _focus.addListener(() {
       if (!_focus.hasFocus) _save();
     });
+  }
+
+  @override
+  void didUpdateWidget(_TmdbKeyTile old) {
+    super.didUpdateWidget(old);
+    // Si la key cambió por otro lado (por ejemplo, se borraron los datos) y no
+    // se está escribiendo, el campo la sigue.
+    if (old.value != widget.value &&
+        !_focus.hasFocus &&
+        _controller.text.trim() != (widget.value ?? '')) {
+      _controller.text = widget.value ?? '';
+    }
   }
 
   @override
@@ -380,8 +414,12 @@ class _TmdbKeyTileState extends State<_TmdbKeyTile> {
             enableSuggestions: false,
             autocorrect: false,
             onSubmitted: (_) => _save(),
-            decoration: const InputDecoration(
+            decoration: InputDecoration(
               labelText: 'API key de TMDB (opcional)',
+              // Sin mostrar la key: solo que no sirvió.
+              errorText: widget.invalid && widget.value != null
+                  ? 'La key de TMDB no es válida'
+                  : null,
             ),
           ),
           const SizedBox(height: Spacing.sm),

@@ -6,19 +6,15 @@ import 'package:parcel_core/parcel_core.dart';
 import '../../app/theme.dart';
 import '../../shared/urls.dart';
 
-/// Iniciales de un nombre: las de las dos primeras palabras («Tim Robbins» es
-/// «TR»). Vacío si no hay letras.
+/// Iniciales de un nombre: la primera letra de cada una de las dos primeras
+/// palabras que tengan alguna («Tim Robbins» es «TR»; los signos no cuentan).
+/// Vacío si no hay letras.
 String initialsOf(String name) {
-  final words = name
-      .trim()
-      .split(RegExp(r'\s+'))
-      .where((w) => w.isNotEmpty)
-      .toList();
-  if (words.isEmpty) return '';
-  String first(String w) => String.fromCharCode(w.runes.first).toUpperCase();
-  return words.length == 1
-      ? first(words[0])
-      : first(words[0]) + first(words[1]);
+  final letter = RegExp(r'[\p{L}\p{N}]', unicode: true);
+  return [
+    for (final word in name.trim().split(RegExp(r'\s+')))
+      ?letter.firstMatch(word)?.group(0)?.toUpperCase(),
+  ].take(2).join();
 }
 
 /// Un color estable para [name]: el mismo nombre da siempre el mismo color.

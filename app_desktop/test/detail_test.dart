@@ -390,4 +390,41 @@ void main() {
       expect(episodesOf(meta, 2).map((v) => v.episode), [1, 2]);
     });
   });
+
+  testWidgets(
+    'con la fuente automática, cada episodio ofrece «Elegir fuente»',
+    (tester) async {
+      world.routes['streams.example.com/stream/series/tt0903747:1:2.json'] = {
+        'streams': [
+          {'name': 'Streams uno', 'url': 'http://media.example.com/e2.mkv'},
+        ],
+      };
+      await openDetail(
+        tester,
+        Routes.detailPath('series', 'tt0903747'),
+        tall: true,
+      );
+
+      expect(find.byTooltip('Elegir fuente'), findsNWidgets(3));
+      await tester.tap(
+        find.byKey(const Key('episode-choose-source-tt0903747:1:2')),
+      );
+      await pumpIo(tester, ticks: 8);
+
+      expect(find.byType(StreamsScreen), findsOneWidget);
+      expect(find.text('T1 E2 · Episodio 1x2'), findsOneWidget);
+    },
+  );
+
+  testWidgets('con la fuente automática apagada no hay «Elegir fuente» por '
+      'episodio (el toque ya abre la lista)', (tester) async {
+    await openDetail(
+      tester,
+      Routes.detailPath('series', 'tt0903747'),
+      tall: true,
+      autoSelectSource: false,
+    );
+
+    expect(find.byTooltip('Elegir fuente'), findsNothing);
+  });
 }

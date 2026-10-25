@@ -202,6 +202,7 @@ void main() {
 
       final saved = File('${dir.path}/settings.json').readAsStringSync();
       expect(saved, contains('"tmdbApiKey":"clave-secreta-123"'));
+      expect(find.text('Guardado'), findsOneWidget);
       // La key no se dibuja como texto en ningún lado.
       expect(
         find.byWidgetPredicate(
@@ -216,6 +217,25 @@ void main() {
       tester.view.physicalSize = const Size(960, 600);
       await tester.pump(const Duration(milliseconds: 100));
       expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('en 960×600 se llega al campo de TMDB con scroll', (
+      tester,
+    ) async {
+      await openSettings(tester);
+      tester.view.physicalSize = const Size(960, 600);
+      await tester.pump(const Duration(milliseconds: 100));
+
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('setting-tmdb-key')),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.enterText(find.byKey(const Key('setting-tmdb-key')), 'x');
+      await tester.pump();
+
+      expect(tester.takeException(), isNull);
+      expect(find.byKey(const Key('setting-tmdb-key')), findsOneWidget);
     });
 
     testWidgets('el idioma elegido se guarda en disco', (tester) async {
