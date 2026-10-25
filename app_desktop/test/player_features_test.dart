@@ -763,7 +763,6 @@ void main() {
   group('elegir otro subtítulo mientras uno baja', () {
     late _GatedEngine gated;
     const spa = 'http://subs.example.com/es.srt';
-    const eng = 'http://subs.example.com/en.srt';
 
     Future<void> pick(WidgetTester tester, String label) async {
       await tester.tap(find.byKey(const Key('player-subtitle-menu')));
