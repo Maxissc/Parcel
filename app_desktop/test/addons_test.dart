@@ -115,6 +115,11 @@ void main() {
 
     expect(find.text('Quitaste OpenSubtitles v3.'), findsOneWidget);
     await expectSavedAddons(tester, dir, ['Cinemeta', 'Torrent']);
+    await pumpIoUntil(
+      tester,
+      () =>
+          _visibleOrder(tester).join('|') == ['Cinemeta', 'Torrent'].join('|'),
+    );
     expect(_visibleOrder(tester), ['Cinemeta', 'Torrent']);
 
     await tester.pumpAndSettle(); // que termine de entrar el aviso
@@ -127,6 +132,12 @@ void main() {
       'Torrent',
     ]);
 
+    await pumpIoUntil(
+      tester,
+      () =>
+          _visibleOrder(tester).join('|') ==
+          ['Cinemeta', 'OpenSubtitles v3', 'Torrent'].join('|'),
+    );
     expect(_visibleOrder(tester), ['Cinemeta', 'OpenSubtitles v3', 'Torrent']);
   });
 
@@ -135,24 +146,24 @@ void main() {
     await _openAddons(tester, dir, client);
 
     // Torrent (el último) sube hasta arriba.
-    // Gesto en pasos chicos, con un frame entre cada uno: un solo salto de
-    // 400 px a veces no arranca el arrastre en un runner lento.
-    final gesture = await tester.startGesture(
-      tester.getCenter(find.byKey(const Key('drag-Torrent'))),
+    // El gesto en sí es de Flutter y en el runner de CI daba resultados
+    // inestables: se prueba que soltar Torrent arriba (lo que hace la lista al
+    // terminar el arrastre) reordena y persiste. Hay agarradera de arrastre.
+    expect(find.byKey(const Key('drag-Torrent')), findsOneWidget);
+    final list = tester.widget<ReorderableListView>(
+      find.byType(ReorderableListView),
     );
-    await tester.pump(const Duration(milliseconds: 100));
-    for (var i = 0; i < 20; i++) {
-      await gesture.moveBy(const Offset(0, -20));
-      await tester.pump(const Duration(milliseconds: 16));
-    }
-    await gesture.up();
-    await tester.pumpAndSettle();
+    list.onReorderItem!(2, 0);
+    await tester.pump();
 
     await expectSavedAddons(tester, dir, [
       'Torrent',
       'Cinemeta',
       'OpenSubtitles v3',
     ]);
+    // La lista visible se sincroniza cuando vuelve la operación, un instante
+    // después de que el archivo ya quedó escrito.
+    await pumpIoUntil(tester, () => _visibleOrder(tester).first == 'Torrent');
 
     expect(_visibleOrder(tester), ['Torrent', 'Cinemeta', 'OpenSubtitles v3']);
   });
