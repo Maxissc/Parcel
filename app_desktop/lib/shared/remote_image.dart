@@ -2,6 +2,29 @@ import 'package:flutter/material.dart';
 
 import 'urls.dart';
 
+/// Ancho en píxeles al que se decodifica una imagen que se muestra a [width]
+/// píxeles lógicos. Las imágenes chicas (pósters) usan su tamaño justo; las
+/// anchas (fondos) se redondean hacia arriba a escalones de 480 px, así
+/// redimensionar la ventana no vuelve a bajar ni a decodificar la imagen.
+int remoteImageDecodeWidth(double width, double devicePixelRatio) {
+  final pixels = (width * devicePixelRatio).round();
+  const step = 480;
+  if (pixels <= step) return pixels;
+  return (pixels / step).ceil() * step;
+}
+
+/// El proveedor con el que [RemoteImage] muestra [url] a [width]: sirve para
+/// precargarla con la misma entrada de la caché.
+ImageProvider remoteImageProvider(
+  String url,
+  double width,
+  double devicePixelRatio,
+) => ResizeImage.resizeIfNeeded(
+  remoteImageDecodeWidth(width, devicePixelRatio),
+  null,
+  NetworkImage(url),
+);
+
 /// Imagen de la red que llena su espacio: muestra un fondo con un ícono
 /// mientras carga, aparece con un fundido y, si falla, deja el fondo con un
 /// ícono de imagen rota.
@@ -49,7 +72,10 @@ class RemoteImage extends StatelessWidget {
         source,
         fit: fit,
         alignment: alignment,
-        cacheWidth: (width * MediaQuery.devicePixelRatioOf(context)).round(),
+        cacheWidth: remoteImageDecodeWidth(
+          width,
+          MediaQuery.devicePixelRatioOf(context),
+        ),
         excludeFromSemantics: true,
         errorBuilder: (context, error, stackTrace) => const SizedBox.shrink(),
       );
@@ -66,7 +92,8 @@ class RemoteImage extends StatelessWidget {
           source,
           fit: fit,
           alignment: alignment,
-          cacheWidth: (width * pixelRatio).round(),
+          cacheWidth: remoteImageDecodeWidth(width, pixelRatio),
+          gaplessPlayback: true,
           excludeFromSemantics: true,
           frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
             if (wasSynchronouslyLoaded) return child;

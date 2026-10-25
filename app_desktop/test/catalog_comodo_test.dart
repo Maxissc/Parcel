@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -13,6 +14,8 @@ import 'package:parcel_desktop/app/router.dart';
 import 'package:parcel_desktop/data/providers.dart';
 import 'package:parcel_desktop/features/catalog/catalog_screen.dart';
 import 'package:parcel_desktop/features/detail/detail_screen.dart';
+import 'package:parcel_desktop/features/home/billboard.dart'
+    show billboardPrecacheProvider;
 import 'package:parcel_desktop/features/home/home_screen.dart';
 import 'package:parcel_desktop/features/player/play_item.dart' show ResumeMode;
 import 'package:parcel_desktop/features/player/play_route.dart';
@@ -63,6 +66,7 @@ void main() {
     List<PlaybackProgress> progress = const [],
     Size? size,
     Map<String, Object?>? settings,
+    List<Override> overrides = const [],
   }) async {
     final http_ = client ?? world.client;
     await seedData(
@@ -79,7 +83,7 @@ void main() {
           jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
       file.writeAsStringSync(jsonEncode({...current, ...settings}));
     }
-    await pumpApp(tester, dir, http_);
+    await pumpApp(tester, dir, http_, overrides: overrides);
     if (size != null) tester.view.physicalSize = size;
     await pumpIo(tester, ticks: 6);
   }
@@ -151,6 +155,73 @@ void main() {
       await tester.pump(const Duration(seconds: 9));
       await tester.pump(const Duration(seconds: 1));
       expect(titleText(tester), 'Peli 2');
+    });
+
+    testWidgets('precarga el fondo del siguiente antes de rotar', (
+      tester,
+    ) async {
+      final loaded = <String>[];
+      await openHome(
+        tester,
+        overrides: [
+          billboardPrecacheProvider.overrideWithValue((image, context) async {
+            final provider = image is ResizeImage ? image.imageProvider : image;
+            if (provider is NetworkImage) loaded.add(provider.url);
+          }),
+        ],
+      );
+      expect(titleText(tester), 'Peli 1');
+      expect(loaded, contains('https://img.example.com/tt900002-bg.jpg'));
+      expect(
+        loaded,
+        isNot(contains('https://img.example.com/tt900003-bg.jpg')),
+      );
+
+      await tester.pump(const Duration(seconds: 9));
+      await tester.pump(const Duration(seconds: 1));
+      expect(titleText(tester), 'Peli 2');
+      expect(loaded, contains('https://img.example.com/tt900003-bg.jpg'));
+    });
+
+    testWidgets('no rota con otra pantalla encima y retoma al volver', (
+      tester,
+    ) async {
+      await openHome(tester);
+      await tester.tap(find.byKey(const Key('billboard-info')));
+      await pumpUntil(tester, find.byType(DetailScreen));
+
+      await tester.pump(const Duration(seconds: 40));
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await pumpIo(tester, ticks: 6);
+      expect(find.byType(DetailScreen), findsNothing);
+      expect(titleText(tester), 'Peli 1');
+
+      // Vuelve a contar un intervalo entero desde que se ve de nuevo.
+      await tester.pump(const Duration(seconds: 8));
+      expect(titleText(tester), 'Peli 1');
+      await tester.pump(const Duration(seconds: 2));
+      await tester.pump(const Duration(seconds: 1));
+      expect(titleText(tester), 'Peli 2');
+    });
+
+    testWidgets('al salir el mouse el destacado cuenta un intervalo '
+        'entero', (tester) async {
+      await openHome(tester);
+      final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      await mouse.addPointer(location: tester.getCenter(billboard()));
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 8));
+
+      await mouse.moveTo(const Offset(5, 780));
+      await tester.pump();
+      // Sin reiniciar, el próximo golpe del reloj caía 1 s después.
+      await tester.pump(const Duration(seconds: 2));
+      await tester.pump(const Duration(seconds: 1));
+      expect(titleText(tester), 'Peli 1');
+      await tester.pump(const Duration(seconds: 7));
+      await tester.pump(const Duration(seconds: 1));
+      expect(titleText(tester), 'Peli 2');
+      await mouse.removePointer();
     });
 
     testWidgets('los indicadores saltan al destacado', (tester) async {

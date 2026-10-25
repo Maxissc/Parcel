@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:parcel_core/parcel_core.dart';
@@ -9,6 +10,7 @@ import '../../data/browse_providers.dart';
 import '../../data/progress_providers.dart';
 import '../../shared/media_labels.dart';
 import '../../shared/remote_image.dart';
+import '../../shared/urls.dart';
 import '../player/play_item.dart';
 import 'home_rows.dart';
 import 'meta_actions.dart';
@@ -76,6 +78,17 @@ final billboardItemsProvider = Provider.autoDispose<List<BillboardItem>>((ref) {
   return items;
 });
 
+/// Cómo se precarga una imagen en la caché (se reemplaza en los tests).
+typedef ImagePrecache = Future<void> Function(
+  ImageProvider image,
+  BuildContext context,
+);
+
+final billboardPrecacheProvider = Provider<ImagePrecache>(
+  (ref) =>
+      (image, context) => precacheImage(image, context, onError: (_, _) {}),
+);
+
 /// El destacado de arriba de la home: rota solo, se frena con el mouse
 /// encima o con la ventana sin foco.
 class Billboard extends ConsumerStatefulWidget {
@@ -94,7 +107,15 @@ class _BillboardState extends ConsumerState<Billboard>
   bool _hovered = false;
   bool _focused = true;
 
-  bool get _paused => _hovered || !_focused;
+  /// `false` cuando otra pantalla tapa la home (por ejemplo el reproductor):
+  /// no rota ni gasta cuadros.
+  ValueListenable<TickerModeData>? _visible;
+
+  /// Qué destacado y a qué ancho ya se precargó el siguiente.
+  String? _precached;
+  double _width = 0;
+
+  bool get _paused => _hovered || !_focused || _visible?.value.enabled == false;
 
   @override
   void initState() {
@@ -106,7 +127,22 @@ class _BillboardState extends ConsumerState<Billboard>
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final visible = TickerMode.getValuesNotifier(context);
+    if (visible == _visible) return;
+    _visible?.removeListener(_onVisibleChanged);
+    _visible = visible..addListener(_onVisibleChanged);
+  }
+
+  void _onVisibleChanged() {
+    // Al volver a verse, la cuenta arranca de nuevo.
+    if (mounted && _visible?.value.enabled == true) _restart();
+  }
+
+  @override
   void dispose() {
+    _visible?.removeListener(_onVisibleChanged);
     WidgetsBinding.instance.removeObserver(this);
     _timer?.cancel();
     super.dispose();
@@ -114,7 +150,9 @@ class _BillboardState extends ConsumerState<Billboard>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    _focused = state == AppLifecycleState.resumed;
+    final focused = state == AppLifecycleState.resumed;
+    if (focused && !_focused) _restart();
+    _focused = focused;
   }
 
   void _restart() {
@@ -125,6 +163,23 @@ class _BillboardState extends ConsumerState<Billboard>
       if (count < 2) return;
       setState(() => _index = (_index + 1) % count);
     });
+  }
+
+  /// Baja de antemano el fondo del destacado que sigue, para que al rotar ya
+  /// esté en la caché y no haya un destello de fondo vacío.
+  void _precacheNext() {
+    if (!mounted || _width <= 0) return;
+    final items = ref.read(billboardItemsProvider);
+    if (items.length < 2) return;
+    final next = items[(_index + 1) % items.length].meta;
+    final url = next.background ?? next.poster;
+    if (url == null || !isHttpUrl(url)) return;
+    final provider = remoteImageProvider(
+      url,
+      _width,
+      MediaQuery.devicePixelRatioOf(context),
+    );
+    unawaited(ref.read(billboardPrecacheProvider)(provider, context));
   }
 
   void _select(int index) {
@@ -141,10 +196,21 @@ class _BillboardState extends ConsumerState<Billboard>
     final reduce = MediaQuery.disableAnimationsOf(context);
     return LayoutBuilder(
       builder: (context, constraints) {
+        _width = constraints.maxWidth;
+        final key =
+            '$index|${items.length}|${items[(index + 1) % items.length].meta.id}|$_width';
+        if (key != _precached) {
+          _precached = key;
+          WidgetsBinding.instance.addPostFrameCallback((_) => _precacheNext());
+        }
         final height = (constraints.maxWidth * 0.34).clamp(260.0, 420.0);
         return MouseRegion(
           onEnter: (_) => _hovered = true,
-          onExit: (_) => _hovered = false,
+          onExit: (_) {
+            _hovered = false;
+            // Al salir el mouse, el destacado se queda un intervalo entero.
+            _restart();
+          },
           child: SizedBox(
             key: const Key('billboard'),
             height: height,
