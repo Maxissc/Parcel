@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../app/theme.dart';
 import 'remote_image.dart';
@@ -66,6 +67,10 @@ abstract final class CardGrowth {
   static const double panelHeight = 136;
   static const double panelGap = 6;
 
+  /// Ancho de la franja de las flechas ‹ › de una fila: la tarjeta agrandada
+  /// no la tapa.
+  static const double arrowGutter = 72;
+
   /// La escala y el panel tardan distinto: la tarjeta crece en los primeros
   /// 220 ms y el panel entra con 60 ms de retraso.
   static const double _cardEnd = 220 / 280;
@@ -82,6 +87,25 @@ abstract final class CardGrowth {
     curve: const Interval(_panelStart, 1, curve: Curves.easeOutCubic),
     reverseCurve: const Interval(_panelStart, 1, curve: Curves.easeInCubic),
   );
+}
+
+/// Lo que una fila ([Shelf]) le ofrece a sus tarjetas: avisar que el mouse
+/// está sobre la tarjeta agrandada, que cuenta como estar sobre la fila (las
+/// flechas no se apagan).
+class ShelfScope extends InheritedWidget {
+  const ShelfScope({
+    super.key,
+    required this.onOverlayHover,
+    required super.child,
+  });
+
+  final ValueChanged<bool> onOverlayHover;
+
+  static ShelfScope? maybeOf(BuildContext context) =>
+      context.getInheritedWidgetOfExactType<ShelfScope>();
+
+  @override
+  bool updateShouldNotify(ShelfScope old) => false;
 }
 
 /// Tarjeta de un contenido: póster con título y una línea gris.
@@ -130,6 +154,10 @@ class PosterCard extends StatefulWidget {
 
 class _PosterCardState extends State<PosterCard>
     with SingleTickerProviderStateMixin {
+  /// La única tarjeta agrandada de la pantalla: al abrir una se cierra la
+  /// otra.
+  static _PosterCardState? _active;
+
   final LayerLink _link = LayerLink();
   final OverlayPortalController _portal = OverlayPortalController();
   late final AnimationController _controller = AnimationController(
@@ -139,21 +167,53 @@ class _PosterCardState extends State<PosterCard>
   late final Animation<double> _grow = CardGrowth.grow(_controller);
   late final Animation<double> _panel = CardGrowth.panel(_controller);
 
+  /// `true` mientras la tarjeta agrandada se cierra o ya está cerrada: no
+  /// recibe gestos.
+  final ValueNotifier<bool> _isClosing = ValueNotifier(true);
+
   bool _overCard = false;
   bool _overPanel = false;
   bool _focused = false;
+
+  /// Otra tarjeta tomó el lugar: esta no vuelve a abrirse hasta una intención
+  /// nueva (el mouse o el foco entran de nuevo).
+  bool _yielded = false;
+
+  /// La tarjeta se está cerrando porque se movió la fila o la página: aunque
+  /// el mouse vuelva a quedar sobre la tarjeta chica, no se reabre hasta que
+  /// termine de cerrarse.
+  bool _closingForScroll = false;
   Timer? _intent;
+  Duration _intentDelay = Duration.zero;
   Timer? _leave;
+  ScrollPosition? _rowPosition;
+  ScrollPosition? _pagePosition;
 
   // Dónde cae la tarjeta agrandada, en pantalla; se calcula al abrirla.
   Rect _card = Rect.zero;
   Rect _box = Rect.zero;
 
   bool get _open => _portal.isShowing;
-  bool get _closing =>
-      _controller.status == AnimationStatus.reverse ||
-      (!_controller.isAnimating && _controller.value == 0);
   bool get _wantsOpen => widget.preview != null;
+
+  /// Crecer por foco solo vale en modo teclado: con el mouse o el toque el
+  /// foco de un clic no la agranda.
+  bool get _focusGrows =>
+      _focused &&
+      FocusManager.instance.highlightMode == FocusHighlightMode.traditional;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller.addStatusListener(_onStatus);
+    FocusManager.instance.addHighlightModeListener(_onHighlightMode);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _bindScroll();
+  }
 
   @override
   void didUpdateWidget(PosterCard old) {
@@ -167,27 +227,100 @@ class _PosterCardState extends State<PosterCard>
 
   @override
   void dispose() {
+    if (_active == this) _active = null;
+    FocusManager.instance.removeHighlightModeListener(_onHighlightMode);
+    _rowPosition?.removeListener(_onScroll);
+    _pagePosition?.removeListener(_onScroll);
+    if (_overPanel) _notifyShelf(false);
     _intent?.cancel();
     _leave?.cancel();
+    _controller.removeStatusListener(_onStatus);
     _controller.dispose();
+    _isClosing.dispose();
     super.dispose();
+  }
+
+  void _onStatus(AnimationStatus status) {
+    _isClosing.value =
+        status == AnimationStatus.reverse ||
+        status == AnimationStatus.dismissed;
+  }
+
+  void _onHighlightMode(FocusHighlightMode mode) {
+    if (mounted) _evaluate();
+  }
+
+  // --- Scroll de la fila y de la página -----------------------------------------
+
+  void _bindScroll() {
+    final row = Scrollable.maybeOf(context, axis: Axis.horizontal)?.position;
+    if (row != _rowPosition) {
+      _rowPosition?.removeListener(_onScroll);
+      _rowPosition = row?..addListener(_onScroll);
+    }
+    final page = Scrollable.maybeOf(context, axis: Axis.vertical)?.position;
+    if (page != _pagePosition) {
+      _pagePosition?.removeListener(_onScroll);
+      _pagePosition = page?..addListener(_onScroll);
+    }
+  }
+
+  /// Si la fila o la página se mueven, la tarjeta agrandada se cierra (se iría
+  /// del lugar); una que todavía espera para abrirse espera a que pare.
+  void _onScroll() {
+    if (!mounted) return;
+    if (_open) {
+      _hide(reevaluate: true);
+    } else if (_intent != null) {
+      _intent!.cancel();
+      _intent = Timer(_intentDelay, _show);
+    }
+  }
+
+  /// Mueve la fila (horizontal) o la página (vertical) [delta] píxeles.
+  void _scrollBy(Axis axis, double delta) {
+    final position = Scrollable.maybeOf(context, axis: axis)?.position;
+    if (position == null) return;
+    final target = (position.pixels + delta).clamp(
+      position.minScrollExtent,
+      position.maxScrollExtent,
+    );
+    if (target != position.pixels) position.jumpTo(target);
   }
 
   // --- Intención de abrir y de cerrar ------------------------------------------
 
   void _setOverCard(bool value) {
     _overCard = value;
+    if (value) _yielded = false;
     _evaluate();
   }
 
   void _setOverPanel(bool value) {
-    _overPanel = value;
+    _setOverPanelQuiet(value);
     _evaluate();
+  }
+
+  void _setOverPanelQuiet(bool value) {
+    if (_overPanel == value) return;
+    _overPanel = value;
+    _notifyShelf(value);
+  }
+
+  void _notifyShelf(bool value) {
+    final callback = ShelfScope.maybeOf(context)?.onOverlayHover;
+    if (callback == null) return;
+    if (mounted) {
+      callback(value);
+    } else {
+      WidgetsBinding.instance.addPostFrameCallback((_) => callback(value));
+    }
   }
 
   void _setFocused(bool value) {
     _focused = value;
     if (value) {
+      _yielded = false;
       Scrollable.ensureVisible(
         context,
         duration: MediaQuery.disableAnimationsOf(context)
@@ -206,21 +339,22 @@ class _PosterCardState extends State<PosterCard>
       setState(() {});
       return;
     }
-    final inside = _overCard || _overPanel || _focused;
+    final inside = _overCard || _overPanel || _focusGrows;
     if (inside) {
       _leave?.cancel();
-      if (_open) {
-        if (_controller.status != AnimationStatus.forward &&
+      if (_yielded) {
+        // Otra tarjeta tomó el lugar.
+      } else if (_open) {
+        if (!_closingForScroll &&
+            _controller.status != AnimationStatus.forward &&
             !_controller.isCompleted) {
           unawaited(_controller.forward());
         }
-      } else {
-        _intent ??= Timer(
-          _overCard || _overPanel
-              ? CardGrowth.hoverDelay
-              : CardGrowth.focusDelay,
-          _show,
-        );
+      } else if (_intent == null) {
+        _intentDelay = _overCard || _overPanel
+            ? CardGrowth.hoverDelay
+            : CardGrowth.focusDelay;
+        _intent = Timer(_intentDelay, _show);
       }
     } else {
       _intent?.cancel();
@@ -247,32 +381,60 @@ class _PosterCardState extends State<PosterCard>
 
     // Horizontal: centrada sobre la tarjeta y sin salirse de la fila (queda
     // anclada a la izquierda en la primera visible y a la derecha en la
-    // última).
+    // última), dejando libre la franja de las flechas.
     final scrollable = Scrollable.maybeOf(context)?.context.findRenderObject();
     final overlay = Overlay.maybeOf(context)?.context.findRenderObject();
+    final gutter = ShelfScope.maybeOf(context) == null
+        ? 0.0
+        : CardGrowth.arrowGutter;
     var minX = 8.0;
     var maxX = double.infinity;
     if (scrollable is RenderBox && scrollable.attached) {
       final view = scrollable.localToGlobal(Offset.zero) & scrollable.size;
-      minX = view.left + 8;
-      maxX = view.right - 8;
+      minX = view.left + 8 + gutter;
+      maxX = view.right - 8 - gutter;
     }
     var left = card.left - (width - size.width) / 2;
     if (maxX.isFinite && maxX - minX >= width) {
       left = left.clamp(minX, maxX - width);
     }
 
+    // Vertical: dentro de la ventana y sin subirse por encima del área de la
+    // página.
     var top = card.top - (height - size.height) / 2;
     final total = height + CardGrowth.panelGap + CardGrowth.panelHeight;
+    var minTop = 8.0;
+    final page = Scrollable.maybeOf(
+      context,
+      axis: Axis.vertical,
+    )?.context.findRenderObject();
+    if (page is RenderBox && page.attached) {
+      minTop = page.localToGlobal(Offset.zero).dy + 8;
+    }
     if (overlay is RenderBox && overlay.attached) {
       final bottom = overlay.size.height - 8;
-      if (top + total > bottom) top = (bottom - total).clamp(8.0, top);
+      if (top + total > bottom) top = bottom - total;
     }
+    if (top < minTop) top = minTop;
+
+    // Una sola tarjeta agrandada por vez.
+    final other = _active;
+    if (other != null && other != this) other._yield();
+    _active = this;
     _card = card;
     _box = Rect.fromLTWH(left, top, width, total);
     _portal.show();
     unawaited(_controller.forward());
     setState(() {});
+  }
+
+  /// Otra tarjeta se abrió: esta se va enseguida y no vuelve sola.
+  void _yield() {
+    _yielded = true;
+    _intent?.cancel();
+    _intent = null;
+    _leave?.cancel();
+    if (_open) _snapClosed();
   }
 
   /// El menú del clic derecho: la tarjeta agrandada se va y no vuelve a crecer
@@ -285,36 +447,66 @@ class _PosterCardState extends State<PosterCard>
     widget.onContextMenu?.call(position);
   }
 
-  void _hide() {
+  void _hide({bool reevaluate = false}) {
     _leave = null;
     if (!_open) return;
+    if (reevaluate) _closingForScroll = true;
+    if (_controller.status == AnimationStatus.reverse) return;
     unawaited(
       _controller.reverse().whenComplete(() {
+        _closingForScroll = false;
         if (!mounted || _controller.value > 0) return;
-        _overPanel = false;
+        _setOverPanelQuiet(false);
         _portal.hide();
+        if (_active == this) _active = null;
         setState(() {});
+        if (reevaluate) _evaluate();
       }),
     );
   }
 
   void _snapClosed() {
+    _closingForScroll = false;
     _controller.value = 0;
-    _overPanel = false;
+    _setOverPanelQuiet(false);
     _portal.hide();
+    if (_active == this) _active = null;
   }
 
-  /// La rueda sobre la tarjeta agrandada mueve la página, como si no
-  /// estuviera.
+  /// La rueda sobre la tarjeta agrandada mueve lo que movería sin ella: la
+  /// página con la rueda vertical, la fila con Shift o con el desplazamiento
+  /// horizontal.
   void _forwardWheel(PointerSignalEvent event) {
     if (event is! PointerScrollEvent) return;
-    final page = Scrollable.maybeOf(context, axis: Axis.vertical);
-    if (page == null) return;
+    final dx = event.scrollDelta.dx;
+    final dy = event.scrollDelta.dy;
+    final horizontal =
+        HardwareKeyboard.instance.isShiftPressed || dx.abs() > dy.abs();
+    final target = Scrollable.maybeOf(
+      context,
+      axis: horizontal ? Axis.horizontal : Axis.vertical,
+    );
+    if (target == null) return;
+    final delta = horizontal && dx.abs() > dy.abs() ? dx : dy;
     GestureBinding.instance.pointerSignalResolver.register(event, (_) {
-      page.position.pointerScroll(event.scrollDelta.dy);
+      target.position.pointerScroll(delta);
     });
-    _overPanel = false;
+    _setOverPanelQuiet(false);
     _evaluate();
+  }
+
+  /// Arrastrar con el mouse (o el dedo) sobre la tarjeta agrandada mueve la
+  /// fila.
+  void _forwardMove(PointerMoveEvent event) {
+    if (event.buttons & kPrimaryButton == 0) return;
+    _scrollBy(Axis.horizontal, -event.delta.dx);
+  }
+
+  /// Un pan del trackpad sobre la tarjeta agrandada mueve la fila y la
+  /// página.
+  void _forwardPan(PointerPanZoomUpdateEvent event) {
+    _scrollBy(Axis.horizontal, -event.panDelta.dx);
+    _scrollBy(Axis.vertical, -event.panDelta.dy);
   }
 
   // --- Dibujo ---------------------------------------------------------------
@@ -481,7 +673,6 @@ class _PosterCardState extends State<PosterCard>
     if (preview == null) return const SizedBox.shrink();
     final box = _box;
     final card = _card;
-    final closing = _closing;
     // Dónde queda la tarjeta chica dentro de la caja de la grande.
     final startLeft = card.left - box.left;
     final startTop = card.top - box.top;
@@ -494,13 +685,17 @@ class _PosterCardState extends State<PosterCard>
       offset: Offset(box.left - card.left, box.top - card.top),
       child: Align(
         alignment: Alignment.topLeft,
-        child: IgnorePointer(
-          ignoring: closing,
+        child: ValueListenableBuilder<bool>(
+          valueListenable: _isClosing,
+          builder: (context, closing, child) =>
+              IgnorePointer(ignoring: closing, child: child),
           child: MouseRegion(
             onEnter: (_) => _setOverPanel(true),
             onExit: (_) => _setOverPanel(false),
             child: Listener(
               onPointerSignal: _forwardWheel,
+              onPointerMove: _forwardMove,
+              onPointerPanZoomUpdate: _forwardPan,
               child: GestureDetector(
                 behavior: HitTestBehavior.translucent,
                 onTap: widget.onTap,

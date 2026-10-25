@@ -123,6 +123,10 @@ class _ShelfState extends State<Shelf> {
   // Estado de las flechas aparte, para no reconstruir las tarjetas: solo las
   // flechas escuchan estos avisos.
   final ValueNotifier<bool> _hovered = ValueNotifier(false);
+  bool _overRow = false;
+  // El mouse sobre la tarjeta agrandada también cuenta como estar sobre la
+  // fila.
+  bool _overGrown = false;
   final ValueNotifier<bool> _canBack = ValueNotifier(false);
   final ValueNotifier<bool> _canForward = ValueNotifier(false);
 
@@ -141,6 +145,8 @@ class _ShelfState extends State<Shelf> {
     _canForward.dispose();
     super.dispose();
   }
+
+  void _syncHover() => _hovered.value = _overRow || _overGrown;
 
   void _changed() {
     if (!mounted || !_controller.hasClients) return;
@@ -182,46 +188,60 @@ class _ShelfState extends State<Shelf> {
     return SizedBox(
       height: widget.height,
       child: MouseRegion(
-        onEnter: (_) => _hovered.value = true,
-        onExit: (_) => _hovered.value = false,
-        child: NotificationListener<ScrollMetricsNotification>(
-          onNotification: (_) {
-            WidgetsBinding.instance.addPostFrameCallback((_) => _changed());
-            return false;
+        onEnter: (_) {
+          _overRow = true;
+          _syncHover();
+        },
+        onExit: (_) {
+          _overRow = false;
+          _syncHover();
+        },
+        child: ShelfScope(
+          onOverlayHover: (value) {
+            if (!mounted) return;
+            _overGrown = value;
+            _syncHover();
           },
-          child: Stack(
-            children: [
-              ScrollConfiguration(
-                behavior: behavior,
-                child: ListView.separated(
-                  controller: _controller,
-                  scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.fromLTRB(
-                    Spacing.lg,
-                    Spacing.sm,
-                    Spacing.lg,
-                    Spacing.md,
+          child: NotificationListener<ScrollMetricsNotification>(
+            onNotification: (_) {
+              WidgetsBinding.instance.addPostFrameCallback((_) => _changed());
+              return false;
+            },
+            child: Stack(
+              children: [
+                ScrollConfiguration(
+                  behavior: behavior,
+                  child: ListView.separated(
+                    controller: _controller,
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.fromLTRB(
+                      Spacing.lg,
+                      Spacing.sm,
+                      Spacing.lg,
+                      Spacing.md,
+                    ),
+                    itemCount: widget.itemCount,
+                    separatorBuilder: (_, _) =>
+                        const SizedBox(width: Spacing.md),
+                    itemBuilder: widget.itemBuilder,
                   ),
-                  itemCount: widget.itemCount,
-                  separatorBuilder: (_, _) => const SizedBox(width: Spacing.md),
-                  itemBuilder: widget.itemBuilder,
                 ),
-              ),
-              _Arrow(
-                forward: false,
-                fade: fade,
-                hovered: _hovered,
-                can: _canBack,
-                onPressed: () => _page(-1),
-              ),
-              _Arrow(
-                forward: true,
-                fade: fade,
-                hovered: _hovered,
-                can: _canForward,
-                onPressed: () => _page(1),
-              ),
-            ],
+                _Arrow(
+                  forward: false,
+                  fade: fade,
+                  hovered: _hovered,
+                  can: _canBack,
+                  onPressed: () => _page(-1),
+                ),
+                _Arrow(
+                  forward: true,
+                  fade: fade,
+                  hovered: _hovered,
+                  can: _canForward,
+                  onPressed: () => _page(1),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -253,7 +273,7 @@ class _Arrow extends StatelessWidget {
       bottom: 0,
       left: forward ? null : 0,
       right: forward ? 0 : null,
-      width: 72,
+      width: CardGrowth.arrowGutter,
       child: ListenableBuilder(
         listenable: Listenable.merge([hovered, can]),
         builder: (context, _) {

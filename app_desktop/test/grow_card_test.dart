@@ -17,6 +17,8 @@ Future<void> _pumpRow(
   bool reduceMotion = false,
   VoidCallback? onTap,
   int count = 12,
+  double width = 900,
+  VoidCallback? onPlay,
 }) async {
   await tester.pumpWidget(
     MaterialApp(
@@ -28,14 +30,20 @@ Future<void> _pumpRow(
         body: Align(
           alignment: Alignment.topLeft,
           child: SizedBox(
-            width: 900,
+            width: width,
             child: Shelf(
               itemCount: count,
               itemBuilder: (context, index) => PosterCard(
                 title: 'Peli $index',
                 caption: '1999',
-                preview: _preview,
-                onTap: onTap,
+                preview: CardPreview(
+                  rating: _preview.rating,
+                  year: _preview.year,
+                  genres: _preview.genres,
+                  synopsis: _preview.synopsis,
+                  onPlay: onPlay,
+                ),
+                onTap: onTap ?? () {},
               ),
             ),
           ),
@@ -52,6 +60,14 @@ Future<TestGesture> _hover(WidgetTester tester, Finder finder) async {
   await mouse.moveTo(tester.getCenter(finder));
   await tester.pump();
   return mouse;
+}
+
+/// Saca el mouse y deja correr los tiempos pendientes de las tarjetas.
+Future<void> _end(WidgetTester tester, TestGesture mouse) async {
+  await mouse.removePointer();
+  for (var i = 0; i < 8; i++) {
+    await tester.pump(const Duration(milliseconds: 200));
+  }
 }
 
 void main() {
@@ -87,7 +103,7 @@ void main() {
       tester.getRect(find.byKey(const Key('card-panel'))).top,
       greaterThanOrEqualTo(grown.bottom),
     );
-    await mouse.removePointer();
+    await _end(tester, mouse);
   });
 
   testWidgets('la primera tarjeta se ancla a la izquierda de la fila', (
@@ -99,7 +115,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 400));
     final grown = tester.getRect(find.byKey(const Key('card-grown')));
     expect(grown.left, greaterThanOrEqualTo(8));
-    await mouse.removePointer();
+    await _end(tester, mouse);
   });
 
   testWidgets('al salir vuelve con la animación inversa y se va', (
@@ -121,7 +137,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 400));
     expect(find.byKey(const Key('card-grown')), findsNothing);
     expect(find.byKey(const Key('card-panel')), findsNothing);
-    await mouse.removePointer();
+    await _end(tester, mouse);
   });
 
   testWidgets('un paso rápido del mouse por la tarjeta no la abre', (
@@ -133,7 +149,7 @@ void main() {
     await mouse.moveTo(const Offset(5, 500));
     await tester.pump(const Duration(milliseconds: 600));
     expect(find.byKey(const Key('card-grown')), findsNothing);
-    await mouse.removePointer();
+    await _end(tester, mouse);
   });
 
   testWidgets('con reducir movimiento no escala: solo aparece con un fundido', (
@@ -146,7 +162,7 @@ void main() {
     final grown = tester.getRect(find.byKey(const Key('card-grown')));
     expect(grown.width, closeTo(140, 0.5));
     expect(find.byKey(const Key('card-panel')), findsOneWidget);
-    await mouse.removePointer();
+    await _end(tester, mouse);
   });
 
   testWidgets('con el foco del teclado también crece, y Enter la abre', (
@@ -173,7 +189,7 @@ void main() {
     await mouse.up();
     await tester.pump();
     expect(opened, 1);
-    await mouse.removePointer();
+    await _end(tester, mouse);
   });
 
   testWidgets('la rueda sobre la tarjeta agrandada mueve la página', (
@@ -214,6 +230,352 @@ void main() {
     );
     await tester.pump();
     expect(page.offset, greaterThan(0));
-    await mouse.removePointer();
+    await _end(tester, mouse);
+  });
+
+  group('gestos sobre la tarjeta agrandada', () {
+    late ScrollController page;
+
+    Future<void> pumpPage(WidgetTester tester) async {
+      page = ScrollController();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: ListView(
+              controller: page,
+              children: [
+                Shelf(
+                  itemCount: 12,
+                  itemBuilder: (context, index) => PosterCard(
+                    title: 'Peli $index',
+                    preview: _preview,
+                    onTap: () {},
+                  ),
+                ),
+                const SizedBox(height: 2000),
+              ],
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+    }
+
+    double rowOffset(WidgetTester tester) => tester
+        .state<ScrollableState>(
+          find.descendant(
+            of: find.byType(Shelf),
+            matching: find.byType(Scrollable),
+          ),
+        )
+        .position
+        .pixels;
+
+    Future<TestGesture> openGrown(WidgetTester tester) async {
+      final mouse = await _hover(tester, find.byType(PosterCard).at(2));
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.byKey(const Key('card-grown')), findsOneWidget);
+      return mouse;
+    }
+
+    testWidgets('Shift + rueda mueve la fila y no la página', (tester) async {
+      await pumpPage(tester);
+      final mouse = await openGrown(tester);
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+      await tester.sendEventToBinding(
+        PointerScrollEvent(
+          position: tester.getCenter(find.byKey(const Key('card-grown'))),
+          scrollDelta: const Offset(0, 120),
+          kind: PointerDeviceKind.mouse,
+        ),
+      );
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+      await tester.pump();
+      expect(rowOffset(tester), greaterThan(0));
+      expect(page.offset, 0);
+      await _end(tester, mouse);
+    });
+
+    testWidgets('el desplazamiento horizontal mueve la fila', (tester) async {
+      await pumpPage(tester);
+      final mouse = await openGrown(tester);
+      await tester.sendEventToBinding(
+        PointerScrollEvent(
+          position: tester.getCenter(find.byKey(const Key('card-grown'))),
+          scrollDelta: const Offset(100, 0),
+          kind: PointerDeviceKind.mouse,
+        ),
+      );
+      await tester.pump();
+      expect(rowOffset(tester), greaterThan(0));
+      expect(page.offset, 0);
+      await _end(tester, mouse);
+    });
+
+    testWidgets('arrastrar con el mouse mueve la fila', (tester) async {
+      await pumpPage(tester);
+      final mouse = await openGrown(tester);
+      await mouse.down(tester.getCenter(find.byKey(const Key('card-grown'))));
+      await mouse.moveBy(const Offset(-60, 0));
+      await mouse.moveBy(const Offset(-60, 0));
+      await mouse.up();
+      await tester.pump();
+      expect(rowOffset(tester), greaterThan(60));
+      await _end(tester, mouse);
+    });
+
+    testWidgets('el pan del trackpad mueve la fila y la página', (
+      tester,
+    ) async {
+      await pumpPage(tester);
+      final mouse = await openGrown(tester);
+      final at = tester.getCenter(find.byKey(const Key('card-grown')));
+      final pad = await tester.createGesture(kind: PointerDeviceKind.trackpad);
+      await pad.panZoomStart(at);
+      await pad.panZoomUpdate(at, pan: const Offset(-80, 0));
+      await tester.pump();
+      expect(rowOffset(tester), greaterThan(0));
+      await pad.panZoomUpdate(at, pan: const Offset(-80, -90));
+      await pad.panZoomEnd();
+      await tester.pump();
+      expect(page.offset, greaterThan(0));
+      await _end(tester, mouse);
+    });
+  });
+
+  group('una sola tarjeta agrandada', () {
+    testWidgets('el hover en otra tarjeta con una enfocada deja una sola', (
+      tester,
+    ) async {
+      FocusManager.instance.highlightStrategy =
+          FocusHighlightStrategy.alwaysTraditional;
+      addTearDown(
+        () => FocusManager.instance.highlightStrategy =
+            FocusHighlightStrategy.automatic,
+      );
+      await _pumpRow(tester);
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.byKey(const Key('card-grown')), findsOneWidget);
+      final first = tester.getCenter(find.byKey(const Key('card-grown')));
+
+      final mouse = await _hover(tester, find.byType(PosterCard).at(4));
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.byKey(const Key('card-grown')), findsOneWidget);
+      expect(
+        tester.getCenter(find.byKey(const Key('card-grown'))).dx,
+        isNot(closeTo(first.dx, 1)),
+      );
+      await _end(tester, mouse);
+    });
+
+    testWidgets('el foco crece solo en modo teclado: al pasar a toque se '
+        'cierra', (tester) async {
+      await _pumpRow(tester);
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.byKey(const Key('card-grown')), findsOneWidget);
+
+      FocusManager.instance.highlightStrategy =
+          FocusHighlightStrategy.alwaysTouch;
+      addTearDown(
+        () => FocusManager.instance.highlightStrategy =
+            FocusHighlightStrategy.automatic,
+      );
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.byKey(const Key('card-grown')), findsNothing);
+    });
+
+    testWidgets('scrollear la fila la cierra', (tester) async {
+      await _pumpRow(tester);
+      final mouse = await _hover(tester, find.byType(PosterCard).at(2));
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.byKey(const Key('card-grown')), findsOneWidget);
+
+      tester
+          .state<ScrollableState>(
+            find.descendant(
+              of: find.byType(Shelf),
+              matching: find.byType(Scrollable),
+            ),
+          )
+          .position
+          .jumpTo(40);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 150));
+      await tester.pump(const Duration(milliseconds: 150));
+      expect(find.byKey(const Key('card-grown')), findsNothing);
+      await _end(tester, mouse);
+    });
+
+    testWidgets('mientras se cierra no recibe toques', (tester) async {
+      var played = 0;
+      await _pumpRow(tester, onPlay: () => played++);
+      final mouse = await _hover(tester, find.byType(PosterCard).at(2));
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump(const Duration(milliseconds: 400));
+      final play = tester.getCenter(find.byKey(const Key('card-play')));
+
+      await mouse.moveTo(const Offset(5, 700));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 60));
+      await tester.pump(const Duration(milliseconds: 60));
+      expect(find.byKey(const Key('card-grown')), findsOneWidget);
+      await tester.tapAt(play);
+      await tester.pump();
+      expect(played, 0);
+      await _end(tester, mouse);
+    });
+  });
+
+  group('flechas de la fila', () {
+    testWidgets('la tarjeta agrandada deja libre la franja de la ›', (
+      tester,
+    ) async {
+      await _pumpRow(tester, width: 700);
+      final mouse = await _hover(tester, find.byType(PosterCard).at(3));
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump(const Duration(milliseconds: 400));
+      final grown = tester.getRect(find.byKey(const Key('card-grown')));
+      final panel = tester.getRect(find.byKey(const Key('card-panel')));
+      final limit = 700 - 8 - CardGrowth.arrowGutter;
+      expect(grown.right, lessThanOrEqualTo(limit + 0.5));
+      expect(panel.right, lessThanOrEqualTo(limit + 0.5));
+      await _end(tester, mouse);
+    });
+
+    testWidgets('el mouse sobre la tarjeta agrandada no apaga las flechas y '
+        'la › sigue andando', (tester) async {
+      await _pumpRow(tester, width: 700);
+      final mouse = await _hover(tester, find.byType(PosterCard).at(3));
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump(const Duration(milliseconds: 400));
+      await mouse.moveTo(tester.getCenter(find.byKey(const Key('card-panel'))));
+      await tester.pump(const Duration(milliseconds: 300));
+      final arrow = find.ancestor(
+        of: find.byTooltip('Ver más'),
+        matching: find.byType(AnimatedOpacity),
+      );
+      expect(tester.widget<AnimatedOpacity>(arrow).opacity, 1);
+
+      final shelf = find.descendant(
+        of: find.byType(Shelf),
+        matching: find.byType(Scrollable),
+      );
+      await mouse.moveTo(tester.getCenter(find.byTooltip('Ver más')));
+      await tester.pump();
+      await mouse.down(tester.getCenter(find.byTooltip('Ver más')));
+      await mouse.up();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(
+        tester.state<ScrollableState>(shelf).position.pixels,
+        greaterThan(0),
+      );
+      await _end(tester, mouse);
+    });
+
+    testWidgets('con la ‹ se ve a la izquierda al llegar al final y la › se '
+        'oculta', (tester) async {
+      await _pumpRow(tester);
+      final shelf = find.descendant(
+        of: find.byType(Shelf),
+        matching: find.byType(Scrollable),
+      );
+      final mouse = await _hover(tester, find.byType(PosterCard).at(1));
+      double opacity(String tooltip) => tester
+          .widget<AnimatedOpacity>(
+            find.ancestor(
+              of: find.byTooltip(tooltip),
+              matching: find.byType(AnimatedOpacity),
+            ),
+          )
+          .opacity;
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(opacity('Ver más'), 1);
+      expect(opacity('Ver anteriores'), 0);
+
+      final position = tester.state<ScrollableState>(shelf).position;
+      position.jumpTo(position.maxScrollExtent);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(opacity('Ver más'), 0);
+      expect(opacity('Ver anteriores'), 1);
+      await _end(tester, mouse);
+    });
+
+    testWidgets('al agrandar la ventana o cambiar itemCount se recalcula', (
+      tester,
+    ) async {
+      await _pumpRow(tester, width: 400, count: 12);
+      final mouse = await _hover(tester, find.byType(PosterCard).first);
+      double opacity() => tester
+          .widget<AnimatedOpacity>(
+            find.ancestor(
+              of: find.byTooltip('Ver más'),
+              matching: find.byType(AnimatedOpacity),
+            ),
+          )
+          .opacity;
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(opacity(), 1);
+
+      // Cabe todo: ya no hay a dónde ir.
+      await _pumpRow(tester, width: 1400, count: 3);
+      await mouse.moveTo(const Offset(5, 700));
+      await mouse.moveTo(tester.getCenter(find.byType(PosterCard).first));
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(opacity(), 0);
+
+      // Vuelven a sobrar tarjetas.
+      await _pumpRow(tester, width: 1400, count: 30);
+      await mouse.moveTo(const Offset(5, 700));
+      await mouse.moveTo(tester.getCenter(find.byType(PosterCard).first));
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(opacity(), 1);
+      await _end(tester, mouse);
+    });
+  });
+
+  testWidgets('la tarjeta agrandada no sube por encima del área de la página', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          appBar: AppBar(title: const Text('Barra')),
+          body: ListView(
+            children: [
+              Shelf(
+                itemCount: 12,
+                itemBuilder: (context, index) => PosterCard(
+                  title: 'Peli $index',
+                  preview: _preview,
+                  onTap: () {},
+                ),
+              ),
+              const SizedBox(height: 2000),
+            ],
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    final pageTop = tester.getTopLeft(find.byType(ListView).first).dy;
+    final mouse = await _hover(tester, find.byType(PosterCard).at(2));
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pump(const Duration(milliseconds: 400));
+    final grown = tester.getRect(find.byKey(const Key('card-grown')));
+    expect(pageTop, greaterThan(0));
+    expect(grown.top, greaterThanOrEqualTo(pageTop + 8 - 0.5));
+    await _end(tester, mouse);
   });
 }
