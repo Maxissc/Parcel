@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -639,6 +640,45 @@ void main() {
     expect(window.title, 'Breaking Bad · T1 E1 · Episodio 1x1 · Parcel');
     await leavePlayer(tester);
     expect(window.title, 'Parcel');
+  });
+
+  testWidgets('el botón Atrás del mouse en el reproductor hace la cadena de '
+      'Esc: panel de datos, pantalla completa y recién después vuelve', (
+    tester,
+  ) async {
+    final fake = engine();
+    await openPlayer(
+      tester,
+      fake,
+      PlayerArgs(url: 'http://media.example.com/video.mkv', item: _movieItem()),
+    );
+    expect(window.fullScreen, isTrue);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyI);
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.byKey(const Key('player-info-panel')), findsOneWidget);
+
+    Future<void> back() async {
+      final mouse = await tester.createGesture(
+        kind: PointerDeviceKind.mouse,
+        buttons: kBackMouseButton,
+      );
+      await mouse.down(const Offset(600, 300));
+      await mouse.up();
+      await pumpIo(tester, ticks: 3);
+    }
+
+    await back();
+    expect(find.byKey(const Key('player-info-panel')), findsNothing);
+    expect(window.fullScreen, isTrue);
+    expect(find.byKey(const Key('player-controls')), findsOneWidget);
+
+    await back();
+    expect(window.fullScreen, isFalse);
+    expect(find.byKey(const Key('player-controls')), findsOneWidget);
+
+    await back();
+    expect(find.byKey(const Key('player-controls')), findsNothing);
+    await pumpIo(tester, ticks: 12);
   });
 
   group('pantalla completa', () {

@@ -765,6 +765,43 @@ void main() {
       expect(tester.getRect(card.first).bottom, lessThanOrEqualTo(600));
     });
 
+    testWidgets(
+      'Esc con el menú del clic derecho abierto cierra solo el menú',
+      (tester) async {
+        await openHome(tester);
+        await tester.tap(find.byKey(const Key('row-see-all')).first);
+        await pumpUntil(tester, find.byType(CatalogScreen));
+        await pumpUntil(tester, find.text('Peli 2'));
+        await tester.tap(find.text('Peli 2'), buttons: kSecondaryButton);
+        await tester.pump(const Duration(milliseconds: 400));
+        expect(find.text('Marcar como visto'), findsWidgets);
+
+        await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+        await tester.pump(const Duration(milliseconds: 400));
+        expect(find.text('Marcar como visto'), findsNothing);
+        expect(find.byType(CatalogScreen), findsOneWidget);
+
+        // Un segundo Esc, ya sin menú, sí vuelve.
+        await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+        await pumpIo(tester, ticks: 4);
+        expect(find.byType(CatalogScreen), findsNothing);
+      },
+    );
+
+    testWidgets('al volver de la ficha el foco queda en la tarjeta', (
+      tester,
+    ) async {
+      await openHome(tester);
+      await focus(tester, 'Peli 2');
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await pumpUntil(tester, find.byType(DetailScreen));
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await pumpIo(tester, ticks: 6);
+      expect(find.byType(DetailScreen), findsNothing);
+      expect(hasFocus(tester, 'Peli 2'), isTrue);
+    });
+
     testWidgets('Esc y el botón Atrás del mouse vuelven', (tester) async {
       await openHome(tester);
       await tester.tap(_inRows('Peli 1'));

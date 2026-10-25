@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:parcel_core/parcel_core.dart';
 
+import '../../app/back_navigation.dart';
 import '../../app/theme.dart';
 import '../../data/platform.dart';
 import '../../playback/playback_errors.dart';
@@ -210,9 +211,21 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   PlaybackEngine get _engine => widget.engine;
 
+  BackInterceptors? _backInterceptors;
+
+  /// El botón Atrás del mouse hace lo que Esc: cierra el asistente de
+  /// sincronización o el panel de datos, sale de pantalla completa y recién
+  /// después vuelve. Solo si el reproductor es la pantalla de arriba.
+  bool _onMouseBack() {
+    if (!mounted || ModalRoute.of(context)?.isCurrent != true) return false;
+    unawaited(_escape());
+    return true;
+  }
+
   @override
   void initState() {
     super.initState();
+    _backInterceptors = BackScope.maybeOf(context)?..add(_onMouseBack);
     _catalog = widget.catalog ?? SubtitleCatalog();
     _lateLoaded = widget.lateSubtitles == null;
     _catalog.addListener(_onCatalogChanged);
@@ -234,6 +247,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   @override
   void dispose() {
+    _backInterceptors?.remove(_onMouseBack);
     _reportProgress();
     _hideTimer?.cancel();
     _osdTimer?.cancel();
