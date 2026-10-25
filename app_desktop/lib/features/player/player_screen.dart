@@ -519,15 +519,33 @@ class _PlayerScreenState extends State<PlayerScreen>
     await _maybeRunSyncTaps();
   }
 
+  /// Número de la última elección de subtítulo (cada elección suma uno). Una
+  /// descarga vieja que termina cuando ya hubo otra elección no pisa la nueva.
+  int _pickToken = 0;
+  int _resolvedToken = 0;
+
+  /// La pista que dejó la última elección ya resuelta (`null` si apagó los
+  /// subtítulos).
+  SubtitleTrack? _pickedTrack;
+
+  void _resolvePick(int token) {
+    if (token != _pickToken) return;
+    _resolvedToken = token;
+    _pickedTrack = _engine.state.selectedSubtitle;
+  }
+
   Future<void> _selectEntry(SubtitleEntry entry) async {
+    final token = ++_pickToken;
     final embedded = entry.embedded;
     if (embedded != null) {
       await _engine.setSubtitleTrack(embedded);
+      _resolvePick(token);
       return;
     }
     final known = _loadedExternal[entry.id];
     if (known != null) {
       await _engine.setSubtitleTrack(known);
+      _resolvePick(token);
       return;
     }
     final before = _engine.state.subtitleTracks.map((t) => t.id).toSet();
@@ -540,19 +558,34 @@ class _PlayerScreenState extends State<PlayerScreen>
         language: entry.subtitle.lang,
       );
     } finally {
-      if (mounted && identical(_loadingEntry, entry)) {
+      if (mounted && token == _pickToken && _loadingEntry?.id == entry.id) {
         setState(() => _loadingEntry = null);
       }
     }
-    final selected = _engine.state.selectedSubtitle;
-    if (selected != null &&
-        selected.isExternal &&
-        !before.contains(selected.id)) {
-      _loadedExternal[entry.id] = selected;
-    } else if (mounted) {
+    // La pista que se sumó para esta entrada: una externa nueva que no es de
+    // ninguna otra (con dos bajadas en curso, la del medio no es de esta).
+    final owned = _loadedExternal.values.toSet();
+    final added = _engine.state.subtitleTracks
+        .where(
+          (t) => t.isExternal && !before.contains(t.id) && !owned.contains(t),
+        )
+        .lastOrNull;
+    if (added != null) _loadedExternal[entry.id] = added;
+    if (token != _pickToken) {
+      // Hubo otra elección mientras bajaba: el motor eligió esta pista al
+      // terminar, y se vuelve a la elección más nueva (si ya se resolvió).
+      if (added != null &&
+          _resolvedToken > token &&
+          _engine.state.selectedSubtitle == added) {
+        await _engine.setSubtitleTrack(_pickedTrack);
+      }
+      return;
+    }
+    if (added == null && mounted) {
       // No se pudo bajar: queda el subtítulo que había.
       _showOsd('No se pudo cargar el subtítulo');
     }
+    _resolvePick(token);
     if (_delay != Duration.zero) await _engine.setSubtitleDelay(_delay);
   }
 
@@ -578,7 +611,11 @@ class _PlayerScreenState extends State<PlayerScreen>
     _userPickedSubtitle = true;
     final previous = _selectedSubtitleKey();
     if (previous != null) _trackDelays[previous] = _delay;
+    // Elegir otra cosa cancela el «Descargando…» de una elección anterior.
+    final token = ++_pickToken;
+    if (_loadingEntry != null && mounted) setState(() => _loadingEntry = null);
     await change();
+    _resolvePick(token);
     if (!mounted || nextKey == null || nextKey == previous) return;
     final delay = _trackDelays[nextKey] ?? Duration.zero;
     if (delay != _delay) _setDelay(delay);
@@ -592,9 +629,11 @@ class _PlayerScreenState extends State<PlayerScreen>
         state.subtitleTracks.where((t) => !t.isExternal).toList(),
       ),
       alignmentOf: _catalog.alignmentOf,
-      isLoading: (entry) => identical(entry, _loadingEntry),
+      isLoading: (entry) => _loadingEntry?.id == entry.id,
       isSelected: (entry) {
-        if (identical(entry, _loadingEntry)) return true;
+        // Bajando una, la que queda tildada es esa y ninguna otra.
+        final loading = _loadingEntry;
+        if (loading != null) return loading.id == entry.id;
         final selected = state.selectedSubtitle;
         if (selected == null) return false;
         return entry.embedded != null

@@ -759,6 +759,128 @@ void main() {
     await twice(tester);
     expect(find.byKey(const Key('player-loading')), findsNothing);
   });
+
+  group('elegir otro subtítulo mientras uno baja', () {
+    late _GatedEngine gated;
+    const spa = 'http://subs.example.com/es.srt';
+    const eng = 'http://subs.example.com/en.srt';
+
+    Future<void> pick(WidgetTester tester, String label) async {
+      await tester.tap(find.byKey(const Key('player-subtitle-menu')));
+      // Con una descarga en curso el menú tiene un indicador que no para:
+      // no se puede esperar a que todo se asiente.
+      await tester.pump();
+      for (var i = 0; i < 8; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+      await tester.tap(_menuItem(label));
+      await tester.pump(const Duration(milliseconds: 400));
+    }
+
+    Future<void> start(WidgetTester tester) async {
+      gated = _GatedEngine();
+      await openPlayer(tester, gated);
+      // El menú es largo: una ventana alta para que todos los ítems se vean.
+      tester.view.physicalSize = const Size(1280, 1600);
+      await letSubtitlesLoad(tester, gated);
+      expect(gated.state.selectedSubtitle?.language, 'spl');
+    }
+
+    int checked(WidgetTester tester) => find
+        .byWidgetPredicate(
+          (w) => w is CheckedPopupMenuItem<Object> && w.checked,
+        )
+        .evaluate()
+        .length;
+
+    testWidgets('elegir «Desactivados» cancela el «Descargando…» y la baja '
+        'vieja no vuelve a elegir', (tester) async {
+      await start(tester);
+      gated.gates[spa] = Completer<void>();
+      await pick(tester, 'Español');
+
+      await pick(tester, 'Desactivados');
+      expect(gated.state.selectedSubtitle, isNull);
+      await tester.tap(find.byKey(const Key('player-subtitle-menu')));
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.text('Descargando…'), findsNothing);
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pump(const Duration(milliseconds: 400));
+
+      gated.gates[spa]!.complete();
+      await pumpIo(tester, ticks: 4);
+      expect(gated.state.selectedSubtitle, isNull);
+    });
+
+    testWidgets('A lento → B rápido: B queda elegido, con un solo ítem '
+        'tildado, aunque A termine después', (tester) async {
+      await start(tester);
+      gated.gates[spa] = Completer<void>();
+      await pick(tester, 'Español');
+      await pick(tester, 'Inglés');
+      expect(gated.state.selectedSubtitle?.language, 'eng');
+
+      gated.gates[spa]!.complete();
+      await pumpIo(tester, ticks: 4);
+      expect(gated.state.selectedSubtitle?.language, 'eng');
+
+      await tester.tap(find.byKey(const Key('player-subtitle-menu')));
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.text('Descargando…'), findsNothing);
+      expect(checked(tester), 1);
+      expect(
+        tester
+            .widget<CheckedPopupMenuItem<Object>>(_menuItem('Inglés'))
+            .checked,
+        isTrue,
+      );
+    });
+
+    testWidgets('A lento → B rápido → A falla: B sigue y A no se queda con la '
+        'pista de B', (tester) async {
+      await start(tester);
+      gated.gates[spa] = Completer<void>();
+      gated.failing.add(spa);
+      await pick(tester, 'Español');
+      await pick(tester, 'Inglés');
+
+      gated.gates[spa]!.complete();
+      await pumpIo(tester, ticks: 4);
+      expect(gated.state.selectedSubtitle?.language, 'eng');
+
+      // Volver a elegir «Español» baja su propia pista (ya no falla).
+      gated.failing.clear();
+      gated.gates.remove(spa);
+      await pick(tester, 'Español');
+      await pumpIo(tester, ticks: 4);
+      expect(gated.state.selectedSubtitle?.language, 'spa');
+      expect(gated.state.selectedSubtitle?.isExternal, isTrue);
+    });
+  });
+}
+
+/// Un motor donde cada URL de subtítulo externo puede demorarse o fallar por
+/// separado.
+class _GatedEngine extends FakePlaybackEngine {
+  _GatedEngine()
+    : super(
+        mediaDuration: const Duration(minutes: 10),
+        audioTracks: const [AudioTrack(id: '1', language: 'eng')],
+      );
+
+  final Map<String, Completer<void>> gates = {};
+  final Set<String> failing = {};
+
+  @override
+  Future<void> addExternalSubtitle(
+    String url, {
+    String? title,
+    String? language,
+  }) async {
+    await gates[url]?.future;
+    if (failing.contains(url)) return;
+    await super.addExternalSubtitle(url, title: title, language: language);
+  }
 }
 
 /// El ítem de un menú emergente que lleva [text].
