@@ -135,12 +135,18 @@ void main() {
     await _openAddons(tester, dir, client);
 
     // Torrent (el último) sube hasta arriba.
-    await tester.drag(
-      find.byKey(const Key('drag-Torrent')),
-      const Offset(0, -400),
+    // Gesto en pasos chicos, con un frame entre cada uno: un solo salto de
+    // 400 px a veces no arranca el arrastre en un runner lento.
+    final gesture = await tester.startGesture(
+      tester.getCenter(find.byKey(const Key('drag-Torrent'))),
     );
-    await tester.pump(const Duration(milliseconds: 500));
-    await pumpIo(tester);
+    await tester.pump(const Duration(milliseconds: 100));
+    for (var i = 0; i < 20; i++) {
+      await gesture.moveBy(const Offset(0, -20));
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    await gesture.up();
+    await tester.pumpAndSettle();
 
     await expectSavedAddons(tester, dir, [
       'Torrent',
