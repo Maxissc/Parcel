@@ -119,7 +119,10 @@ void main() {
     ScrollPosition positionIn(WidgetTester tester, Key key) => tester
         .state<ScrollableState>(
           find
-              .descendant(of: find.byKey(key), matching: find.byType(Scrollable))
+              .descendant(
+                of: find.byKey(key),
+                matching: find.byType(Scrollable),
+              )
               .first,
         )
         .position;

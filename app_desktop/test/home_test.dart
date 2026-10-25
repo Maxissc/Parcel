@@ -40,6 +40,11 @@ PlaybackProgress _progress(
   updatedAt: at ?? DateTime.utc(2026, 1, 1),
 );
 
+/// Texto dentro de una fila de tarjetas (el billboard repite el primer
+/// título, así que `find.text` a secas encuentra dos).
+Finder _inRows(String text) =>
+    find.descendant(of: find.byType(Shelf), matching: find.text(text));
+
 void main() {
   late Directory dir;
   late CatalogWorld world;
@@ -84,8 +89,8 @@ void main() {
       expect(find.text('Popular · Películas'), findsOneWidget);
       expect(find.text('Popular · Series'), findsOneWidget);
       expect(find.text('Cinemeta'), findsWidgets);
-      expect(find.text('The Matrix'), findsOneWidget);
-      expect(find.text('Breaking Bad'), findsOneWidget);
+      expect(_inRows('The Matrix'), findsOneWidget);
+      expect(_inRows('Breaking Bad'), findsOneWidget);
       // Vacía: no se dibuja. Con extra obligatorio: no es de la home.
       expect(find.text('Sin nada · Películas'), findsNothing);
       expect(find.text('Por género · Películas'), findsNothing);
@@ -104,17 +109,17 @@ void main() {
     // Los dos pedidos salieron sin esperar al otro.
     expect(world.requests, containsAll([_movieTop, _seriesTop]));
     expect(find.byType(Skeleton), findsWidgets);
-    expect(find.text('The Matrix'), findsNothing);
+    expect(_inRows('The Matrix'), findsNothing);
     expect(find.text('Popular · Películas'), findsOneWidget);
 
     gates[_seriesTop]!.complete();
     await pumpIo(tester, ticks: 4);
-    expect(find.text('Breaking Bad'), findsOneWidget);
-    expect(find.text('The Matrix'), findsNothing, reason: 'la otra sigue');
+    expect(_inRows('Breaking Bad'), findsOneWidget);
+    expect(_inRows('The Matrix'), findsNothing, reason: 'la otra sigue');
 
     gates[_movieTop]!.complete();
     await pumpIo(tester, ticks: 4);
-    expect(find.text('The Matrix'), findsOneWidget);
+    expect(_inRows('The Matrix'), findsOneWidget);
     expect(find.byType(Skeleton), findsNothing);
   });
 
@@ -126,7 +131,7 @@ void main() {
     await openHome(tester);
     gates[_seriesTop]!.complete();
     await pumpIo(tester, ticks: 4);
-    expect(find.text('Breaking Bad'), findsOneWidget);
+    expect(_inRows('Breaking Bad'), findsOneWidget);
 
     final rebuilt = <String>[];
     debugOnRebuildDirtyWidget = (element, builtOnce) =>
@@ -136,7 +141,7 @@ void main() {
     await pumpIo(tester, ticks: 4);
     debugOnRebuildDirtyWidget = null;
 
-    expect(find.text('The Matrix'), findsOneWidget);
+    expect(_inRows('The Matrix'), findsOneWidget);
     expect(rebuilt.where((w) => w == 'HomeScreen'), isEmpty);
     expect(rebuilt.where((w) => w == 'CatalogRowSection'), hasLength(1));
   });
@@ -165,12 +170,18 @@ void main() {
     (tester) async {
       world.failing.add(_broken);
       await openHome(tester);
+      // La tercera fila carga recién cuando se acerca a la pantalla.
+      await tester.drag(
+        find.byKey(const Key('home-list')),
+        const Offset(0, -500),
+      );
+      await pumpIo(tester, ticks: 6);
 
       expect(find.text('Caído · Películas'), findsOneWidget);
       expect(find.text('No se pudo cargar'), findsOneWidget);
       expect(find.textContaining('Respondió con el error 500'), findsOneWidget);
       // Las otras filas siguen bien.
-      expect(find.text('The Matrix'), findsOneWidget);
+      expect(_inRows('The Matrix'), findsOneWidget);
       final before = world.count('catalog/movie/top.json');
 
       world.failing.clear();
@@ -250,26 +261,27 @@ void main() {
   });
 
   testWidgets(
-    'la rueda del mouse desplaza la fila y las flechas aparecen al pasar',
+    'la rueda baja la página, Shift la fila, y las flechas aparecen al pasar',
     (tester) async {
-      world.routes[_seriesTop] = {
+      world.routes[_movieTop] = {
         'metas': [
-          for (var i = 0; i < 30; i++)
-            metaItem('tt${100 + i}', 'Serie $i', type: 'series'),
+          for (var i = 0; i < 30; i++) metaItem('tt${100 + i}', 'Peli $i'),
         ],
       };
       await openHome(tester);
 
-      final shelf = find.byType(Shelf).at(1);
+      final shelf = find.byType(Shelf).first;
       Finder inShelf(String tooltip) =>
           find.descendant(of: shelf, matching: find.byTooltip(tooltip));
-      final scrollable = find.descendant(
-        of: shelf,
-        matching: find.byType(Scrollable),
-      );
-      double pixels() =>
-          tester.state<ScrollableState>(scrollable).position.pixels;
-      expect(pixels(), 0);
+      ScrollPosition positionOf(Finder of) => tester
+          .state<ScrollableState>(
+            find.descendant(of: of, matching: find.byType(Scrollable)).first,
+          )
+          .position;
+      double rowPixels() => positionOf(shelf).pixels;
+      double pagePixels() =>
+          positionOf(find.byKey(const Key('home-list'))).pixels;
+      expect(rowPixels(), 0);
       expect(inShelf('Ver más').hitTestable(), findsNothing);
 
       final mouse = TestPointer(1, PointerDeviceKind.mouse);
@@ -278,16 +290,25 @@ void main() {
       expect(inShelf('Ver más').hitTestable(), findsOneWidget);
       expect(inShelf('Ver anteriores').hitTestable(), findsNothing);
 
-      await tester.sendEventToBinding(mouse.scroll(const Offset(0, 300)));
+      // La rueda común baja la página y no toca la fila.
+      await tester.sendEventToBinding(mouse.scroll(const Offset(0, 100)));
       await tester.pump();
-      await tester.pump(const Duration(milliseconds: 400));
-      expect(pixels(), 300);
+      expect(rowPixels(), 0);
+      expect(pagePixels(), greaterThan(0));
+
+      // Con Shift mueve la fila.
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+      await tester.sendEventToBinding(mouse.hover(tester.getCenter(shelf)));
+      await tester.sendEventToBinding(mouse.scroll(const Offset(0, 300)));
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+      await tester.pump();
+      expect(rowPixels(), 300);
       expect(inShelf('Ver anteriores').hitTestable(), findsOneWidget);
 
       await tester.tap(inShelf('Ver más'));
       await tester.pump();
-      await tester.pump(const Duration(milliseconds: 400));
-      expect(pixels(), greaterThan(300));
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(rowPixels(), greaterThan(300));
     },
   );
 
@@ -317,7 +338,7 @@ void main() {
   testWidgets('tocar una tarjeta abre el detalle', (tester) async {
     await openHome(tester);
 
-    await tester.tap(find.text('The Matrix'));
+    await tester.tap(_inRows('The Matrix'));
     await pumpIo(tester, ticks: 6);
 
     expect(find.byType(DetailScreen), findsOneWidget);
@@ -338,7 +359,7 @@ void main() {
     await openHome(tester, engine: engine);
     expect(find.byKey(const Key('continue-watching')), findsNothing);
 
-    await tester.tap(find.text('The Matrix'));
+    await tester.tap(_inRows('The Matrix'));
     await pumpIo(tester, ticks: 6);
     await tester.tap(find.text('Ver'));
     await pumpIo(tester, ticks: 8);
