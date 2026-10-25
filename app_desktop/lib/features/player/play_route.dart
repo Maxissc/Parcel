@@ -8,16 +8,15 @@ import 'package:parcel_core/parcel_core.dart';
 
 import '../../app/diagnostics/diag_log.dart';
 import '../../app/router.dart';
-import '../../app/theme.dart';
 import '../../data/browse_providers.dart';
 import '../../data/platform.dart';
 import '../../data/playback_providers.dart';
 import '../../data/providers.dart';
-import '../../shared/remote_image.dart';
 import '../../shared/state_views.dart';
 import '../streams/streams_args.dart';
 import 'play_args.dart';
 import 'addon_subtitles.dart';
+import 'loading_view.dart';
 import 'play_item.dart';
 import 'player_route.dart';
 import 'source_candidates.dart';
@@ -406,7 +405,8 @@ class _PlayRouteState extends ConsumerState<PlayRoute> {
   }
 }
 
-/// «Buscando la mejor fuente…» sobre el fondo del contenido.
+/// «Buscando la mejor fuente…» sobre el fondo del contenido, con el logo
+/// respirando.
 class _SearchingView extends StatelessWidget {
   const _SearchingView({
     required this.meta,
@@ -415,61 +415,26 @@ class _SearchingView extends StatelessWidget {
   });
 
   final Meta meta;
+
+  /// Si hay, se está probando otra fuente.
   final String? notice;
   final VoidCallback onBack;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     return CallbackShortcuts(
       bindings: {const SingleActivator(LogicalKeyboardKey.escape): onBack},
       child: Focus(
         autofocus: true,
         child: Scaffold(
           backgroundColor: Colors.black,
-          body: Stack(
-            fit: StackFit.expand,
-            children: [
-              RemoteImage(meta.background ?? meta.poster, width: 1280),
-              ColoredBox(color: Colors.black.withValues(alpha: 0.75)),
-              Positioned(
-                top: Spacing.md,
-                left: Spacing.md,
-                child: SafeArea(
-                  child: IconButton.filledTonal(
-                    tooltip: 'Volver (Esc)',
-                    icon: const Icon(Icons.arrow_back),
-                    onPressed: onBack,
-                  ),
-                ),
-              ),
-              Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const CircularProgressIndicator(key: Key('play-searching')),
-                    const SizedBox(height: Spacing.md),
-                    Text(
-                      meta.name,
-                      style: theme.textTheme.headlineSmall,
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: Spacing.sm),
-                    const Text('Buscando la mejor fuente…'),
-                    if (notice != null) ...[
-                      const SizedBox(height: Spacing.sm),
-                      Text(
-                        notice!,
-                        key: const Key('play-notice'),
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          color: theme.colorScheme.tertiary,
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-            ],
+          body: PlayerLoadingView(
+            key: const Key('play-searching'),
+            art: LoadingArt.fromMeta(meta),
+            status: notice == null
+                ? 'Buscando la mejor fuente…'
+                : 'Probando otra fuente…',
+            onBack: onBack,
           ),
         ),
       ),

@@ -17,6 +17,7 @@ import '../../playback/playback_errors.dart';
 import '../streams/streams_args.dart';
 import 'addon_subtitles.dart';
 import 'play_args.dart';
+import 'loading_view.dart';
 import 'play_item.dart';
 import 'player_info.dart';
 import 'player_screen.dart';
@@ -381,6 +382,7 @@ class _PlayerRouteState extends ConsumerState<PlayerRoute> {
         startPosition: start,
       ),
       title: item?.title ?? args.title,
+      loadingArt: item == null ? null : LoadingArt.fromMeta(item.meta),
       subtitles: [
         if (args.subtitleUrl != null)
           Subtitle(

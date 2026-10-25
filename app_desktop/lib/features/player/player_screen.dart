@@ -10,6 +10,7 @@ import '../../data/platform.dart';
 import '../../playback/playback_errors.dart';
 import '../../playback/subtitle_position.dart';
 import '../../playback/video_surface.dart';
+import 'loading_view.dart';
 import 'player_controls.dart';
 import 'player_info.dart';
 import 'player_panels.dart';
@@ -66,9 +67,14 @@ class PlayerScreen extends StatefulWidget {
     this.syncTaps = const [],
     this.autoOpenNext = false,
     this.autoNext = false,
+    this.loadingArt,
   });
 
   final PlaybackEngine engine;
+
+  /// Fondo, logo y nombre del contenido para la pantalla de carga. Sin esto
+  /// muestra el [title].
+  final LoadingArt? loadingArt;
   final PlaybackSource source;
 
   /// Subtítulos externos que se cargan al abrir. Si hay más de uno queda
@@ -1279,8 +1285,11 @@ class _PlayerScreenState extends State<PlayerScreen>
     // El overlay dura hasta el primer cuadro real (la regla `playbackStarted`)
     // y vuelve si el video se queda cargando después.
     final started = _started || playbackStarted(state, from: _openedAt);
-    final loading = !hasError && (!started || state.buffering || switching);
-    final showControls = _controlsVisible && !hasError;
+    // Hasta el primer cuadro: pantalla de carga con el fondo del contenido. Ya
+    // arrancado, un corte por cargar solo muestra el indicador chico.
+    final opening = !hasError && (!started || switching);
+    final rebuffering = !hasError && !opening && state.buffering;
+    final showControls = _controlsVisible && !hasError && !opening;
 
     return MouseRegion(
       cursor: showControls || hasError
@@ -1298,19 +1307,23 @@ class _PlayerScreenState extends State<PlayerScreen>
                 ? (engine as VideoSurfaceProvider).buildVideoSurface(context)
                 : const ColoredBox(color: Colors.black),
           ),
-          if (loading)
-            Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const CircularProgressIndicator(key: Key('player-loading')),
-                  if (state.duration <= Duration.zero) ...[
-                    const SizedBox(height: 16),
-                    const Text('Cargando…'),
-                  ],
-                ],
+          if (rebuffering)
+            const Center(
+              child: CircularProgressIndicator(key: Key('player-loading')),
+            ),
+          Positioned.fill(
+            child: FadingOverlay(
+              visible: opening,
+              child: PlayerLoadingView(
+                key: const Key('player-loading'),
+                art: widget.loadingArt ?? LoadingArt(name: widget.title ?? ''),
+                status: state.duration > Duration.zero
+                    ? 'Cargando…'
+                    : 'Abriendo…',
+                onBack: _back,
               ),
             ),
+          ),
           if (_osd != null)
             Positioned(
               top: 72,

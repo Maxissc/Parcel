@@ -167,7 +167,7 @@ void main() {
     await play(tester, [broken, good], prober: prober);
     await pumpIo(tester, ticks: 8);
 
-    expect(find.text('Esa fuente no anduvo, probando otra…'), findsOneWidget);
+    expect(find.text('Probando otra fuente…'), findsOneWidget);
     expect(find.byType(PlayerScreen), findsNothing);
     gate.complete();
     await pumpIo(tester, ticks: 8);

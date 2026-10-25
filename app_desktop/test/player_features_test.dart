@@ -746,6 +746,10 @@ void main() {
     // Un stream en vivo (sin duración) que avanza ya arrancó: se va.
     fake.tick(const Duration(milliseconds: 300));
     await twice(tester);
+    // Se va con un fundido (unos 350 ms), no de golpe.
+    expect(find.byKey(const Key('player-loading')), findsOneWidget);
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pump();
     expect(find.byKey(const Key('player-loading')), findsNothing);
   });
 
