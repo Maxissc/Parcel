@@ -702,6 +702,7 @@ class _PosterCardState extends State<PosterCard>
             onEnter: (_) => _setOverPanel(true),
             onExit: (_) => _setOverPanel(false),
             child: Listener(
+              behavior: HitTestBehavior.translucent,
               onPointerSignal: _forwardWheel,
               onPointerMove: _forwardMove,
               onPointerPanZoomUpdate: _forwardPan,

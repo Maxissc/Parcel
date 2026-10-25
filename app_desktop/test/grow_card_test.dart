@@ -297,6 +297,25 @@ void main() {
       await _end(tester, mouse);
     });
 
+    testWidgets('la rueda en la franja entre la tarjeta y el panel también '
+        'mueve la página', (tester) async {
+      await pumpPage(tester);
+      final mouse = await openGrown(tester);
+      final grown = tester.getRect(find.byKey(const Key('card-grown')));
+      final panel = tester.getRect(find.byKey(const Key('card-panel')));
+      expect(panel.top, greaterThan(grown.bottom));
+      await tester.sendEventToBinding(
+        PointerScrollEvent(
+          position: Offset(grown.center.dx, (grown.bottom + panel.top) / 2),
+          scrollDelta: const Offset(0, 120),
+          kind: PointerDeviceKind.mouse,
+        ),
+      );
+      await tester.pump();
+      expect(page.offset, greaterThan(0));
+      await _end(tester, mouse);
+    });
+
     testWidgets('el desplazamiento horizontal mueve la fila', (tester) async {
       await pumpPage(tester);
       final mouse = await openGrown(tester);
