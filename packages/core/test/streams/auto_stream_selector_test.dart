@@ -263,7 +263,10 @@ void main() {
         'name': 's1 [RD download]',
         'url': 'https://cdn.example.com/s1',
       }),
-      AddonStream.fromJson({'name': 's2', 'url': 'https://cdn.example.com/s2'}),
+      AddonStream.fromJson({
+        'name': 's2',
+        'url': 'https://cdn.example.com/s2',
+      }),
       AddonStream.fromJson({
         'name': 's3 [RD+]',
         'url': 'https://cdn.example.com/s3',

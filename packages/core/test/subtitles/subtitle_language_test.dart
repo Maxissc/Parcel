@@ -113,10 +113,7 @@ void main() {
     });
 
     test('las marcas de LatAm solo cuentan si el subtítulo es en español', () {
-      expect(
-        _detect('eng', label: 'English (LatAm)'),
-        SubtitleLanguage.english,
-      );
+      expect(_detect('eng', label: 'English (LatAm)'), SubtitleLanguage.english);
       expect(
         _detect('eng', label: 'Los Angeles Cut'),
         SubtitleLanguage.english,

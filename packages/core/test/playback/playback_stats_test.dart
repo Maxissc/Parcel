@@ -23,15 +23,12 @@ void main() {
     expect(engine.stats.dynamicRange.shortLabel, 'HDR');
   });
 
-  test(
-    'un retraso de subtítulos queda guardado y se reinicia al abrir',
-    () async {
-      await engine.setSubtitleDelay(const Duration(milliseconds: -300));
-      expect(engine.subtitleDelay, const Duration(milliseconds: -300));
-      await engine.open(PlaybackSource(url: 'http://x/v.mkv'));
-      expect(engine.subtitleDelay, Duration.zero);
-    },
-  );
+  test('un retraso de subtítulos queda guardado y se reinicia al abrir', () async {
+    await engine.setSubtitleDelay(const Duration(milliseconds: -300));
+    expect(engine.subtitleDelay, const Duration(milliseconds: -300));
+    await engine.open(PlaybackSource(url: 'http://x/v.mkv'));
+    expect(engine.subtitleDelay, Duration.zero);
+  });
 
   test('con stallOnOpen el video queda cargando sin duración', () async {
     engine.stallOnOpen = true;
