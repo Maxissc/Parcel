@@ -74,7 +74,7 @@ void main() {
         ),
       );
       final text = File(path).readAsStringSync();
-      expect(jsonDecode(text)['version'], 3);
+      expect(jsonDecode(text)['version'], 4);
 
       final again = await SettingsStore.open(path);
       expect(again.value.homeLayout.order, ['x|movie|a']);

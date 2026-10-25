@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:parcel_core/parcel_core.dart';
 import 'package:parcel_desktop/data/platform.dart';
 import 'package:parcel_desktop/features/player/player_screen.dart';
+import 'package:parcel_desktop/features/player/side_panel.dart';
 import 'package:parcel_desktop/playback/subtitle_position.dart';
 
 import 'support/fakes.dart';
@@ -39,10 +40,8 @@ Future<void> _pump(
   await tester.pump();
 }
 
-Finder _menuItem(String text) => find.ancestor(
-  of: find.text(text),
-  matching: find.byWidgetPredicate((w) => w is PopupMenuItem),
-);
+Finder _menuItem(String text) =>
+    find.ancestor(of: find.text(text), matching: find.byType(PanelOption));
 
 double _controlsOpacity(WidgetTester tester) => tester
     .widget<AnimatedOpacity>(find.byKey(const Key('player-controls')))

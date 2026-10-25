@@ -9,6 +9,7 @@ import 'package:parcel_desktop/app/router.dart';
 import 'package:parcel_desktop/data/platform.dart';
 import 'package:parcel_desktop/data/playback_providers.dart';
 import 'package:parcel_desktop/features/player/play_item.dart';
+import 'package:parcel_desktop/features/player/side_panel.dart';
 import 'package:parcel_desktop/features/player/player_route.dart';
 
 import 'support/catalog_world.dart';
@@ -195,11 +196,17 @@ void main() {
     await tester.tap(find.byKey(const Key('player-subtitle-menu')));
     await tester.pumpAndSettle();
 
-    double y(String text) => tester.getTopLeft(find.text(text).first).dy;
-    expect(y('Español (Latinoamérica)'), lessThan(y('Español')));
-    expect(y('Español'), lessThan(y('Inglés')));
-    expect(y('Inglés'), lessThan(y('Más idiomas')));
-    expect(y('Más idiomas'), lessThan(y('Francés')));
+    double heading(String text) =>
+        tester.getTopLeft(find.widgetWithText(PanelHeading, text)).dy;
+    double item(String text) =>
+        tester.getTopLeft(find.widgetWithText(PanelOption, text).first).dy;
+    // Separadores por idioma, y dentro de cada uno el orden de siempre.
+    expect(heading('Español'), lessThan(item('Español (Latinoamérica)')));
+    expect(item('Español (Latinoamérica)'), lessThan(item('Español')));
+    expect(item('Español'), lessThan(heading('Inglés')));
+    expect(heading('Inglés'), lessThan(item('Inglés')));
+    expect(item('Inglés'), lessThan(heading('Más idiomas')));
+    expect(heading('Más idiomas'), lessThan(item('Francés')));
     expect(find.text('Probablemente sincronizado'), findsOneWidget);
     expect(find.text('Puede estar desfasado'), findsOneWidget);
     expect(find.text('Sincronizar subtítulos… (S)'), findsOneWidget);
@@ -692,10 +699,7 @@ void main() {
       ),
       findsOneWidget,
     );
-    expect(
-      tester.widget<CheckedPopupMenuItem<Object>>(_menuItem('Español')).checked,
-      isTrue,
-    );
+    expect(tester.widget<PanelOption>(_menuItem('Español')).checked, isTrue);
     await tester.sendKeyEvent(LogicalKeyboardKey.escape);
     await tester.pump(const Duration(milliseconds: 400));
 
@@ -786,9 +790,7 @@ void main() {
     }
 
     int checked(WidgetTester tester) => find
-        .byWidgetPredicate(
-          (w) => w is CheckedPopupMenuItem<Object> && w.checked,
-        )
+        .byWidgetPredicate((w) => w is PanelOption && w.checked)
         .evaluate()
         .length;
 
@@ -827,12 +829,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 400));
       expect(find.text('Descargando…'), findsNothing);
       expect(checked(tester), 1);
-      expect(
-        tester
-            .widget<CheckedPopupMenuItem<Object>>(_menuItem('Inglés'))
-            .checked,
-        isTrue,
-      );
+      expect(tester.widget<PanelOption>(_menuItem('Inglés')).checked, isTrue);
     });
 
     testWidgets('A lento → B rápido → A falla: B sigue y A no se queda con la '
@@ -883,7 +880,5 @@ class _GatedEngine extends FakePlaybackEngine {
 }
 
 /// El ítem de un menú emergente que lleva [text].
-Finder _menuItem(String text) => find.ancestor(
-  of: find.text(text),
-  matching: find.byWidgetPredicate((w) => w is PopupMenuItem<Object>),
-);
+Finder _menuItem(String text) =>
+    find.ancestor(of: find.text(text), matching: find.byType(PanelOption));

@@ -12,6 +12,8 @@ import '../../playback/subtitle_position.dart';
 import '../../playback/video_surface.dart';
 import 'player_controls.dart';
 import 'player_info.dart';
+import 'player_panels.dart';
+import 'side_panel.dart';
 import 'source_menu.dart';
 import 'subtitle_catalog.dart';
 import 'subtitle_delay.dart';
@@ -181,6 +183,18 @@ class _PlayerScreenState extends State<PlayerScreen>
   PlaybackStats _stats = PlaybackStats.empty;
   bool _controlsVisible = true;
   bool _menuOpen = false;
+
+  /// El panel lateral que está en pantalla; con [_panelOpen] en `false` está
+  /// haciendo la animación de salida.
+  PlayerPanel? _panel;
+  bool _panelOpen = false;
+
+  /// Las opciones de subtítulos del panel, armadas una vez (ver
+  /// [_subtitleEntries]).
+  List<SubtitleEntry>? _entriesCache;
+  List<SubtitleTrack>? _entriesTracks;
+  int _catalogVersion = 0;
+  int _entriesVersion = -1;
   bool _fullScreen = false;
   bool _wasPlaying = false;
   bool _wasCompleted = false;
@@ -311,6 +325,7 @@ class _PlayerScreenState extends State<PlayerScreen>
   }
 
   void _onCatalogChanged() {
+    _catalogVersion++;
     if (mounted) setState(() {});
   }
 
@@ -700,6 +715,7 @@ class _PlayerScreenState extends State<PlayerScreen>
 
   /// I (o el botón): el panel de datos y el asistente no van juntos.
   void _toggleInfo() {
+    if (_panel != null) _closePanel();
     setState(() {
       _infoOpen = !_infoOpen;
       if (_infoOpen) _syncOpen = false;
@@ -872,6 +888,10 @@ class _PlayerScreenState extends State<PlayerScreen>
   /// Esc: cierra el asistente de sincronización o el panel de datos; si no,
   /// sale de pantalla completa; si no, vuelve.
   Future<void> _escape() async {
+    if (_panel != null) {
+      _closePanel();
+      return;
+    }
     if (_syncOpen) {
       _closeSync();
       return;
@@ -1035,6 +1055,105 @@ class _PlayerScreenState extends State<PlayerScreen>
     _refocus();
     _poke();
   }
+
+  // --- Paneles laterales (Fuente, Audio, Subtítulos) ------------------------
+
+  /// Abre el panel [kind]; si ya es el que está abierto, lo cierra.
+  void _openPanel(PlayerPanel kind) {
+    if (_panel == kind && _panelOpen) {
+      _closePanel();
+      return;
+    }
+    _menuOpened();
+    setState(() {
+      _panel = kind;
+      _panelOpen = true;
+      _infoOpen = false;
+    });
+  }
+
+  /// Cierra el panel con su animación de salida y devuelve el foco.
+  void _closePanel() {
+    if (_panel == null || !_panelOpen) return;
+    setState(() => _panelOpen = false);
+    _menuClosed();
+  }
+
+  /// Terminó la animación de salida: el panel se saca del árbol.
+  void _panelDismissed() {
+    if (mounted && !_panelOpen) setState(() => _panel = null);
+  }
+
+  /// Las opciones de subtítulos ordenadas. Se rearman al cambiar las pistas o
+  /// el catálogo, no en cada cuadro del video.
+  List<SubtitleEntry> _subtitleEntries(
+    SubtitleMenuData data,
+    PlaybackState state,
+  ) {
+    final cached = _entriesCache;
+    if (cached != null &&
+        identical(_entriesTracks, state.subtitleTracks) &&
+        _entriesVersion == _catalogVersion) {
+      return cached;
+    }
+    _entriesTracks = state.subtitleTracks;
+    _entriesVersion = _catalogVersion;
+    return _entriesCache = data.entries();
+  }
+
+  Widget _panelBody(PlaybackState state) {
+    switch (_panel!) {
+      case PlayerPanel.source:
+        return SourcePanelBody(
+          menu: widget.sourceMenu!,
+          position: state.position,
+          onPick: _closePanel,
+        );
+      case PlayerPanel.audio:
+        return AudioPanelBody(
+          state: state,
+          onSelected: (t) {
+            _userPickedAudio = true;
+            unawaited(_engine.setAudioTrack(t));
+            _closePanel();
+          },
+        );
+      case PlayerPanel.subtitles:
+        final data = _subtitleMenu(state);
+        return SubtitlePanelBody(
+          state: state,
+          data: data,
+          entries: data == null ? const [] : _subtitleEntries(data, state),
+          onSelected: (t) {
+            unawaited(
+              _changeSubtitle(
+                t == null
+                    ? null
+                    : (t.isExternal ? 'trk:${t.id}' : 'emb:${t.id}'),
+                () => _engine.setSubtitleTrack(t),
+              ),
+            );
+            _closePanel();
+          },
+          onSelectedEntry: (entry) {
+            unawaited(_changeSubtitle(entry.id, () => _selectEntry(entry)));
+            _closePanel();
+          },
+          onOpenSync: _syncAvailable
+              ? () {
+                  _closePanel();
+                  _openSync();
+                }
+              : null,
+        );
+    }
+  }
+
+  String _panelTitle() => switch (_panel!) {
+    PlayerPanel.source => 'Fuente',
+    PlayerPanel.audio => 'Audio',
+    PlayerPanel.subtitles => 'Subtítulos',
+  };
 
   // --- Acciones --------------------------------------------------------------
 
@@ -1210,6 +1329,15 @@ class _PlayerScreenState extends State<PlayerScreen>
                 ),
               ),
             ),
+          // Un clic fuera del panel lateral lo cierra.
+          if (_panel != null)
+            Positioned.fill(
+              child: GestureDetector(
+                key: const Key('player-panel-scrim'),
+                behavior: HitTestBehavior.opaque,
+                onTap: _closePanel,
+              ),
+            ),
           IgnorePointer(
             ignoring: !showControls,
             child: AnimatedOpacity(
@@ -1231,28 +1359,11 @@ class _PlayerScreenState extends State<PlayerScreen>
                 },
                 onVolumeChanged: _changeVolume,
                 onToggleMute: _toggleMute,
-                onSelectAudio: (t) {
-                  _userPickedAudio = true;
-                  unawaited(_engine.setAudioTrack(t));
-                },
-                onSelectSubtitle: (t) => unawaited(
-                  _changeSubtitle(
-                    t == null
-                        ? null
-                        : (t.isExternal ? 'trk:${t.id}' : 'emb:${t.id}'),
-                    () => _engine.setSubtitleTrack(t),
-                  ),
-                ),
-                subtitles: _subtitleMenu(state),
-                onSelectSubtitleEntry: (entry) => unawaited(
-                  _changeSubtitle(entry.id, () => _selectEntry(entry)),
-                ),
-                onOpenSync: _syncAvailable ? _openSync : null,
+                onOpenPanel: _openPanel,
+                openPanel: _panelOpen ? _panel : null,
                 sourceMenu: widget.sourceMenu,
                 atmos: atmos,
                 onToggleInfo: _toggleInfo,
-                onMenuOpened: _menuOpened,
-                onMenuClosed: _menuClosed,
                 isFullScreen: _fullScreen,
                 onToggleFullScreen: widget.window == null
                     ? null
@@ -1304,6 +1415,14 @@ class _PlayerScreenState extends State<PlayerScreen>
                 countdown: _countdown,
                 onDismiss: _dismissNext,
               ),
+            ),
+          if (_panel != null)
+            PlayerSidePanel(
+              title: _panelTitle(),
+              open: _panelOpen,
+              onClose: _closePanel,
+              onDismissed: _panelDismissed,
+              child: _panelBody(state),
             ),
           if (hasError)
             _ErrorOverlay(

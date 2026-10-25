@@ -668,7 +668,7 @@ void main() {
             (saved()['homeOrder'] as List).last ==
                 'com.linvo.cinemeta|movie|top',
       );
-      expect(saved()['version'], 3);
+      expect(saved()['version'], 4);
       expect(saved()['homeHidden'], ['com.linvo.cinemeta|series|top']);
       expect(saved()['homeOrder'], [
         'com.linvo.cinemeta|series|top',

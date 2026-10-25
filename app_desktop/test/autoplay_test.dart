@@ -11,6 +11,7 @@ import 'package:parcel_desktop/app/diagnostics/diag_log.dart';
 import 'package:parcel_desktop/app/router.dart';
 import 'package:parcel_desktop/data/platform.dart';
 import 'package:parcel_desktop/features/player/play_item.dart';
+import 'package:parcel_desktop/features/player/side_panel.dart';
 import 'package:parcel_desktop/features/player/play_args.dart';
 import 'package:parcel_desktop/features/player/player_screen.dart';
 import 'package:parcel_desktop/features/streams/streams_screen.dart';
@@ -247,16 +248,10 @@ void main() {
 
     await tester.tap(find.byKey(const Key('player-source-menu')));
     await tester.pumpAndSettle();
-    final items = find.byType(CheckedPopupMenuItem<int>);
+    final items = find.byType(PanelOption);
     expect(items, findsNWidgets(3));
-    expect(
-      tester.widget<CheckedPopupMenuItem<int>>(items.at(0)).checked,
-      isTrue,
-    );
-    expect(
-      tester.widget<CheckedPopupMenuItem<int>>(items.at(1)).checked,
-      isFalse,
-    );
+    expect(tester.widget<PanelOption>(items.at(0)).checked, isTrue);
+    expect(tester.widget<PanelOption>(items.at(1)).checked, isFalse);
     // Los que hay que bajar en el debrid se marcan.
     expect(find.text('Sin cachear'), findsOneWidget);
 

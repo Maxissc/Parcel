@@ -126,4 +126,56 @@ void main() {
       'x 1080p [RD download]',
     );
   });
+
+  group('displayTitle', () {
+    SourceCandidate candidate(Map<String, dynamic> json) => SourceCandidate(
+      stream: AddonStream.fromJson({'url': 'http://x/v.mkv', ...json}),
+      addonUrl: 'https://a.example.com/manifest.json',
+      addonName: 'Torrentio RD',
+    );
+
+    test('de Torrentio toma el nombre del archivo y deja los datos', () {
+      final c = candidate({
+        'name': 'Torrentio\n[RD+] 4k DV | HDR',
+        'title':
+            'Michael.2026.2160p.WEB-DL.DDP5.1.Atmos.DV.HDR.H.265-GROUP.mkv\n'
+            '👤 83 💾 12.4 GB ⚙️ ThePirateBay',
+      });
+      expect(
+        c.displayTitle,
+        'Michael.2026.2160p.WEB-DL.DDP5.1.Atmos.DV.HDR.H.265-GROUP.mkv',
+      );
+    });
+
+    test('el nombre de archivo que declara el addon gana', () {
+      final c = candidate({
+        'name': 'Addon\n1080p',
+        'title': 'Otro texto',
+        'behaviorHints': {'filename': 'Pelicula.2026.1080p.mkv'},
+      });
+      expect(c.displayTitle, 'Pelicula.2026.1080p.mkv');
+    });
+
+    test('sin título usa la descripción y si no el nombre sin el addon', () {
+      expect(
+        candidate({'name': 'Addon', 'description': 'Película (2026)\n💾 3 GB'})
+            .displayTitle,
+        'Película (2026)',
+      );
+      expect(
+        candidate({'name': 'Addon\n1080p Película'}).displayTitle,
+        '1080p Película',
+      );
+      expect(candidate({'name': 'Solo nombre'}).displayTitle, 'Solo nombre');
+    });
+
+    test('nunca lleva una URL', () {
+      final c = candidate({
+        'name': 'Addon',
+        'title': 'Peli http://h.example.com/v.mkv?token=SECRETO',
+      });
+      expect(c.displayTitle, isNot(contains('SECRETO')));
+      expect(c.displayTitle, isNot(contains('http')));
+    });
+  });
 }
