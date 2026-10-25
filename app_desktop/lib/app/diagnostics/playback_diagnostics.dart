@@ -33,6 +33,9 @@ import '../../playback/playback_errors.dart';
 /// - `PARCEL_DIAG_CYCLE_FULLSCREEN=1`: con el reproductor de `/play` andando,
 ///   sale de pantalla completa, vuelve a entrar y cierra el reproductor, y
 ///   anota en el log en qué estado quedó la ventana en cada paso.
+/// - `PARCEL_DIAG_AUTO_NEXT=1`: al terminar un episodio abre solo el que sigue
+///   (como el botón «Ver siguiente episodio») y anota en el log si la ventana
+///   sigue en pantalla completa.
 /// - `PARCEL_DIAG_MIN_PROBE_BYTES`: tamaño mínimo con el que la prueba de
 ///   fuentes acepta un video (por defecto 20 MB; una muestra chica necesita 0).
 class DiagnosticsConfig {
@@ -50,6 +53,7 @@ class DiagnosticsConfig {
     this.syncTaps = const [],
     this.probeMinBytes,
     this.cycleFullscreen = false,
+    this.autoNext = false,
   });
 
   final String? url;
@@ -75,6 +79,7 @@ class DiagnosticsConfig {
   /// Tamaño mínimo de la prueba de fuentes; `null` es el normal.
   final int? probeMinBytes;
   final bool cycleFullscreen;
+  final bool autoNext;
 
   /// `null` si no es debug o no está `PARCEL_DIAG`.
   static DiagnosticsConfig? fromEnvironment([Map<String, String>? env]) {
@@ -101,6 +106,7 @@ class DiagnosticsConfig {
       ],
       probeMinBytes: int.tryParse(e['PARCEL_DIAG_MIN_PROBE_BYTES'] ?? ''),
       cycleFullscreen: e['PARCEL_DIAG_CYCLE_FULLSCREEN'] == '1',
+      autoNext: e['PARCEL_DIAG_AUTO_NEXT'] == '1',
     );
   }
 }

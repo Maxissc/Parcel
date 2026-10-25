@@ -404,6 +404,7 @@ class _PlayerRouteState extends ConsumerState<PlayerRoute> {
           : (d) => _delays[delayKey] = d,
       onDecision: (message) => _diag.log('reproductor: $message'),
       syncTaps: _syncTaps,
+      autoOpenNext: ref.read(diagnosticsConfigProvider)?.autoNext ?? false,
     );
   }
 }

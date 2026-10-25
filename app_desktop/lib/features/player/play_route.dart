@@ -83,6 +83,9 @@ class _PlayRouteState extends ConsumerState<PlayRoute> {
     if (ref.read(diagnosticsConfigProvider)?.cycleFullscreen ?? false) {
       unawaited(_diagFullscreenCycle());
     }
+    if (ref.read(diagnosticsConfigProvider)?.autoNext ?? false) {
+      unawaited(_diagFullscreenState());
+    }
     final chosen = _args.chosen;
     if (chosen != null) {
       _auto = false;
@@ -157,6 +160,17 @@ class _PlayRouteState extends ConsumerState<PlayRoute> {
     _leave();
     await pause(1500);
     await report('con el reproductor cerrado');
+  }
+
+  /// Diagnóstico: a los 4 s de abrir anota si la ventana está en pantalla
+  /// completa (para comprobar que «siguiente episodio» no la saca).
+  Future<void> _diagFullscreenState() async {
+    await Future<void>.delayed(const Duration(seconds: 4));
+    if (!mounted) return;
+    _diag.log(
+      'pantalla completa con ${_args.video?.id ?? _args.meta.id}: '
+      '${await _window.isFullScreen() ? 'sí' : 'no'}',
+    );
   }
 
   void _leave() {

@@ -60,6 +60,7 @@ class PlayerScreen extends StatefulWidget {
     this.onSubtitleDelayChanged,
     this.onDecision,
     this.syncTaps = const [],
+    this.autoOpenNext = false,
   });
 
   final PlaybackEngine engine;
@@ -123,6 +124,9 @@ class PlayerScreen extends StatefulWidget {
   /// Marcas que se aplican solas en el asistente de sincronización (solo para
   /// el diagnóstico).
   final List<Duration> syncTaps;
+
+  /// Diagnóstico: al terminar abre solo el episodio que sigue.
+  final bool autoOpenNext;
 
   /// Segundos sin mover el mouse hasta que se ocultan los controles.
   static const Duration hideAfter = Duration(seconds: 3);
@@ -624,6 +628,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _wasCompleted = s.completed;
     if (paused || finished) _reportProgress();
     if (finished && mounted) setState(() => _nextDismissed = false);
+    if (finished && widget.autoOpenNext && widget.next != null) {
+      _decide('siguiente episodio: lo abre solo (diagnóstico)');
+      unawaited(
+        Future<void>.delayed(const Duration(seconds: 1), () {
+          if (mounted) widget.next!.onOpen(context);
+        }),
+      );
+    }
   }
 
   void _reportProgress({bool onlyIfPlaying = false}) {
