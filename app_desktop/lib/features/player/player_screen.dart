@@ -61,6 +61,7 @@ class PlayerScreen extends StatefulWidget {
     this.onDecision,
     this.syncTaps = const [],
     this.autoOpenNext = false,
+    this.autoNext = false,
   });
 
   final PlaybackEngine engine;
@@ -91,6 +92,16 @@ class PlayerScreen extends StatefulWidget {
 
   /// Si hay, al terminar el video se ofrece pasar al episodio que sigue.
   final NextEpisode? next;
+
+  /// Con [next], en los créditos arranca una cuenta regresiva de
+  /// [nextCountdown] y al llegar a cero abre el episodio que sigue («Pasar solo
+  /// al siguiente episodio»). Apagado, solo se ofrece el botón.
+  final bool autoNext;
+  static const int nextCountdown = 10;
+
+  /// Cuánto antes del final se consideran créditos si el archivo no trae un
+  /// capítulo «Credits».
+  static const Duration creditsWindow = Duration(seconds: 30);
   final String? title;
 
   /// Si es `true`, libera [engine] al cerrar la pantalla.
@@ -167,6 +178,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
   bool _wasPlaying = false;
   bool _wasCompleted = false;
   bool _nextDismissed = false;
+  Timer? _countdownTimer;
+  int? _countdown;
+  SubtitleEntry? _loadingEntry;
   bool _userPickedAudio = false;
   bool _userPickedSubtitle = false;
   bool _started = false;
@@ -226,6 +240,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _progressTimer?.cancel();
     _tapTimer?.cancel();
     _openTimer?.cancel();
+    _countdownTimer?.cancel();
     unawaited(_stateSub?.cancel());
     unawaited(_statsSub?.cancel());
     _catalog.removeListener(_onCatalogChanged);
@@ -469,16 +484,27 @@ class _PlayerScreenState extends State<PlayerScreen> {
       return;
     }
     final before = _engine.state.subtitleTracks.map((t) => t.id).toSet();
-    await _engine.addExternalSubtitle(
-      entry.subtitle.url,
-      title: entry.label,
-      language: entry.subtitle.lang,
-    );
+    // Mientras se baja, el menú lo marca «Descargando…» y la elección queda.
+    if (mounted) setState(() => _loadingEntry = entry);
+    try {
+      await _engine.addExternalSubtitle(
+        entry.subtitle.url,
+        title: entry.label,
+        language: entry.subtitle.lang,
+      );
+    } finally {
+      if (mounted && identical(_loadingEntry, entry)) {
+        setState(() => _loadingEntry = null);
+      }
+    }
     final selected = _engine.state.selectedSubtitle;
     if (selected != null &&
         selected.isExternal &&
         !before.contains(selected.id)) {
       _loadedExternal[entry.id] = selected;
+    } else if (mounted) {
+      // No se pudo bajar: queda el subtítulo que había.
+      _showOsd('No se pudo cargar el subtítulo');
     }
     if (_delay != Duration.zero) await _engine.setSubtitleDelay(_delay);
   }
@@ -519,7 +545,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
         state.subtitleTracks.where((t) => !t.isExternal).toList(),
       ),
       alignmentOf: _catalog.alignmentOf,
+      isLoading: (entry) => identical(entry, _loadingEntry),
       isSelected: (entry) {
+        if (identical(entry, _loadingEntry)) return true;
         final selected = state.selectedSubtitle;
         if (selected == null) return false;
         return entry.embedded != null
@@ -613,6 +641,70 @@ class _PlayerScreenState extends State<PlayerScreen> {
   String _labelOf(Subtitle subtitle) =>
       _catalog.entryFor(subtitle)?.label ?? subtitle.lang;
 
+  // --- Siguiente episodio -------------------------------------------------------
+
+  /// `true` en los créditos (los últimos 30 s, o desde el capítulo «Credits» si
+  /// el archivo lo trae) y al terminar.
+  bool _inCredits(PlaybackState s) {
+    if (widget.next == null) return false;
+    if (s.completed) return true;
+    final duration = s.duration;
+    if (duration <= Duration.zero) return false;
+    final start = _stats.creditsStart;
+    if (start != null) return s.position >= start;
+    // Un video muy corto no tiene créditos aparte.
+    if (duration < PlayerScreen.creditsWindow * 2) return false;
+    return s.position >= duration - PlayerScreen.creditsWindow;
+  }
+
+  bool _nextVisible(PlaybackState s) => !_nextDismissed && _inCredits(s);
+
+  void _updateNextEpisode(PlaybackState s) {
+    if (!mounted) return;
+    if (!_inCredits(s)) {
+      // Salió de los créditos (volvió atrás en el video): se rearma todo.
+      _stopCountdown();
+      if (_nextDismissed) setState(() => _nextDismissed = false);
+      return;
+    }
+    if (widget.autoNext && !_nextDismissed && _countdownTimer == null) {
+      _startCountdown();
+    }
+  }
+
+  void _startCountdown() {
+    setState(() => _countdown = PlayerScreen.nextCountdown);
+    _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      final left = (_countdown ?? 1) - 1;
+      if (left > 0) {
+        setState(() => _countdown = left);
+        return;
+      }
+      timer.cancel();
+      _countdownTimer = null;
+      setState(() => _countdown = 0);
+      _decide('siguiente episodio: lo abre solo al terminar la cuenta');
+      widget.next?.onOpen(context);
+    });
+  }
+
+  void _stopCountdown() {
+    _countdownTimer?.cancel();
+    _countdownTimer = null;
+    if (_countdown != null && mounted) setState(() => _countdown = null);
+  }
+
+  /// «Cancelar» (o cerrar la tarjeta): no abre solo y la tarjeta se va hasta
+  /// que se salga de los créditos.
+  void _dismissNext() {
+    _stopCountdown();
+    setState(() => _nextDismissed = true);
+  }
+
   // --- Progreso ----------------------------------------------------------------
 
   void _onEngineState(PlaybackState s) {
@@ -627,7 +719,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _wasPlaying = s.playing;
     _wasCompleted = s.completed;
     if (paused || finished) _reportProgress();
-    if (finished && mounted) setState(() => _nextDismissed = false);
+    _updateNextEpisode(s);
     if (finished && widget.autoOpenNext && widget.next != null) {
       _decide('siguiente episodio: lo abre solo (diagnóstico)');
       unawaited(
@@ -857,9 +949,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
       _setDelay(_delay + subtitleDelayStep);
     } else if (key == LogicalKeyboardKey.enter &&
         !isRepeat &&
-        _engine.state.completed &&
         widget.next != null &&
-        !_nextDismissed) {
+        _nextVisible(_engine.state)) {
       widget.next!.onOpen(context);
     } else if (key == LogicalKeyboardKey.space && !isRepeat) {
       _playOrPause();
@@ -916,9 +1007,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
     final switching = widget.onOpenFailed != null && !_started;
     final hasError = (state.error != null && !switching) || _stalled;
     final atmos = isAtmosTrack(state.selectedAudio);
-    final loading =
-        !hasError &&
-        (state.buffering || state.duration <= Duration.zero || switching);
+    // El overlay dura hasta el primer cuadro real (la regla `playbackStarted`)
+    // y vuelve si el video se queda cargando después.
+    final started = _started || playbackStarted(state, from: _openedAt);
+    final loading = !hasError && (!started || state.buffering || switching);
     final showControls = _controlsVisible && !hasError;
 
     return MouseRegion(
@@ -1052,14 +1144,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 ),
               ),
             ),
-          if (state.completed && widget.next != null && !_nextDismissed)
+          if (widget.next != null && _nextVisible(state))
             Positioned(
               // Con el panel de datos abierto la tarjeta se corre para no pisarlo.
               right: _infoOpen ? InfoPanel.width + Spacing.md : Spacing.lg,
               bottom: 128,
               child: _NextEpisodeCard(
                 next: widget.next!,
-                onDismiss: () => setState(() => _nextDismissed = true),
+                countdown: _countdown,
+                onDismiss: _dismissNext,
               ),
             ),
           if (hasError)
@@ -1079,10 +1172,17 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
 /// Tarjeta que aparece al terminar un episodio con el que sigue.
 class _NextEpisodeCard extends StatelessWidget {
-  const _NextEpisodeCard({required this.next, required this.onDismiss});
+  const _NextEpisodeCard({
+    required this.next,
+    required this.onDismiss,
+    this.countdown,
+  });
 
   final NextEpisode next;
   final VoidCallback onDismiss;
+
+  /// Segundos que faltan para que arranque solo; `null` si no hay cuenta.
+  final int? countdown;
 
   @override
   Widget build(BuildContext context) {
@@ -1128,12 +1228,32 @@ class _NextEpisodeCard extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
                 style: theme.textTheme.titleMedium,
               ),
+              if (countdown != null)
+                Text(
+                  'Empieza en $countdown s',
+                  key: const Key('player-next-countdown'),
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: theme.colorScheme.primary,
+                  ),
+                ),
               const SizedBox(height: Spacing.md),
-              FilledButton.icon(
-                key: const Key('player-next'),
-                onPressed: () => next.onOpen(context),
-                icon: const Icon(Icons.skip_next),
-                label: const Text('Ver siguiente episodio'),
+              Wrap(
+                spacing: Spacing.sm,
+                runSpacing: Spacing.sm,
+                children: [
+                  FilledButton.icon(
+                    key: const Key('player-next'),
+                    onPressed: () => next.onOpen(context),
+                    icon: const Icon(Icons.skip_next),
+                    label: const Text('Ver siguiente episodio'),
+                  ),
+                  if (countdown != null)
+                    OutlinedButton(
+                      key: const Key('player-next-cancel'),
+                      onPressed: onDismiss,
+                      child: const Text('Cancelar'),
+                    ),
+                ],
               ),
             ],
           ),

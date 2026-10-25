@@ -56,6 +56,10 @@ class MediaKitPlaybackEngine implements PlaybackEngine, VideoSurfaceProvider {
   PlaybackStats _stats = PlaybackStats.empty;
   Timer? _statsTimer;
   bool _polling = false;
+
+  // Los capítulos se leen una vez por video, cuando ya se conoce la duración.
+  bool _chaptersRead = false;
+  Duration? _creditsStart;
   mk.VideoParams? _videoParams;
   mk.AudioParams? _audioParams;
   bool _configured = false;
@@ -235,6 +239,8 @@ class MediaKitPlaybackEngine implements PlaybackEngine, VideoSurfaceProvider {
     _videoParams = null;
     _audioParams = null;
     _stats = PlaybackStats.empty;
+    _chaptersRead = false;
+    _creditsStart = null;
     _update(
       (st) => PlaybackState(
         buffering: true,
@@ -296,6 +302,10 @@ class MediaKitPlaybackEngine implements PlaybackEngine, VideoSurfaceProvider {
     _polling = true;
     try {
       Future<String> get(String name) => platform.getProperty(name);
+      if (!_chaptersRead && _state.duration > Duration.zero) {
+        _chaptersRead = true;
+        _creditsStart = creditsStartFromChapters(await get('chapter-list'));
+      }
       final fps =
           parseMpvDouble(await get('estimated-vf-fps')) ??
           parseMpvDouble(await get('container-fps'));
@@ -322,6 +332,7 @@ class MediaKitPlaybackEngine implements PlaybackEngine, VideoSurfaceProvider {
         bufferAhead: buffer?.ahead ?? Duration.zero,
         bufferBehind: buffer?.behind ?? Duration.zero,
         cacheLevel: cacheProfile.label,
+        creditsStart: _creditsStart,
       );
       if (_disposed || next == _stats) return;
       _stats = next;

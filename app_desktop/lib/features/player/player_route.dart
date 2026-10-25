@@ -396,6 +396,7 @@ class _PlayerRouteState extends ConsumerState<PlayerRoute> {
       window: _window,
       onProgress: item == null ? null : _saveProgress,
       next: _nextEpisode(),
+      autoNext: ref.read(appSettingsProvider).autoPlayNext,
       info: _info(),
       sourceMenu: widget.sourceMenu,
       onOpenFailed: widget.onOpenFailed,

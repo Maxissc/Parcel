@@ -13,6 +13,7 @@ class SubtitleMenuData {
     required this.entries,
     required this.alignmentOf,
     required this.isSelected,
+    this.isLoading = _never,
   });
 
   /// Arma las opciones ordenadas (embebidas y de addons). Se llama al abrir el
@@ -22,7 +23,12 @@ class SubtitleMenuData {
 
   /// Si [entry] es la pista que suena ahora.
   final bool Function(SubtitleEntry entry) isSelected;
+
+  /// Si [entry] se está bajando todavía.
+  final bool Function(SubtitleEntry entry) isLoading;
 }
+
+bool _never(SubtitleEntry entry) => false;
 
 /// Barras de controles que se dibujan encima del video. No guarda estado del
 /// reproductor: todo entra por parámetros y sale por callbacks.
@@ -580,7 +586,25 @@ class _SubtitleMenu extends StatelessWidget {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
-                      if (tag != null)
+                      if (data.isLoading(entry))
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const SizedBox(
+                              width: 12,
+                              height: 12,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              'Descargando…',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: theme.colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
+                        )
+                      else if (tag != null)
                         Text(
                           tag,
                           style: theme.textTheme.bodySmall?.copyWith(

@@ -15,6 +15,7 @@ import '../../data/providers.dart';
 import '../../shared/page_layout.dart';
 import '../detail/tmdb_enrichment.dart';
 import '../player/player_route.dart';
+import 'home_rows_editor.dart';
 import 'try_player_dialog.dart';
 
 /// Ajustes: idiomas preferidos, asistente, datos y «Acerca de».
@@ -45,6 +46,17 @@ class SettingsScreen extends ConsumerWidget {
                   context,
                   () => notifier.setAutoSelectSource(v),
                 ),
+              ),
+              SwitchListTile(
+                key: const Key('setting-auto-next'),
+                title: const Text('Pasar solo al siguiente episodio'),
+                subtitle: const Text(
+                  'Al terminar, aparece una cuenta regresiva de 10 segundos '
+                  'y arranca el que sigue. Podés cancelarla.',
+                ),
+                value: settings.autoPlayNext,
+                onChanged: (v) =>
+                    _saveSetting(context, () => notifier.setAutoPlayNext(v)),
               ),
               ListTile(
                 title: const Text('Calidad preferida'),
@@ -83,6 +95,14 @@ class SettingsScreen extends ConsumerWidget {
                     _saveSetting(context, () => notifier.setOpenFullScreen(v)),
               ),
             ],
+          ),
+          const SizedBox(height: Spacing.md),
+          const _Section(
+            title: 'Inicio',
+            description:
+                'Ordená las filas de la pantalla de inicio o ocultá las que '
+                'no uses. Las ocultas no se piden.',
+            children: [HomeRowsEditor()],
           ),
           const SizedBox(height: Spacing.md),
           _Section(

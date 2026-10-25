@@ -359,6 +359,60 @@ void main() {
   );
 
   testWidgets(
+    'con autoplay, pasar al siguiente episodio no deja ver la lista de '
+    'fuentes ni un cuadro',
+    (tester) async {
+      final meta = Meta.fromJson(seriesMeta('tt0903747', 'Breaking Bad'));
+      for (final (id, title) in [
+        ('1:3', 'Episodio 3'),
+        ('2:1', 'Episodio 4'),
+      ]) {
+        world.routes['streams.example.com/stream/series/tt0903747:$id.json'] = {
+          'streams': [
+            {
+              'name': 'Streams uno',
+              'title': title,
+              'url': 'http://media.example.com/${id.replaceAll(':', '-')}.mkv',
+              'behaviorHints': {'bingeGroup': 'uno-1080'},
+            },
+          ],
+        };
+      }
+      final engine = FakePlaybackEngine(
+        mediaDuration: const Duration(minutes: 10),
+      );
+      final nextEngine = FakePlaybackEngine(
+        mediaDuration: const Duration(minutes: 10),
+      );
+      await openStreams(
+        tester,
+        StreamsArgs(meta: meta, video: meta.videos[2]),
+        addons: const [streamsAddonUrl],
+        engine: engine,
+        more: [nextEngine],
+        window: window,
+      );
+      await tester.tap(find.text('Episodio 3'));
+      await pumpUntil(tester, find.byType(PlayerScreen));
+      engine.tick(const Duration(minutes: 11));
+      await pumpUntil(tester, find.text('Ver siguiente episodio'));
+      await tester.tap(find.text('Ver siguiente episodio'));
+
+      // Cuadro a cuadro: la lista del episodio anterior no aparece nunca.
+      for (var i = 0; i < 40; i++) {
+        await tester.pump(const Duration(milliseconds: 16));
+        expect(
+          find.byType(StreamsScreen),
+          findsNothing,
+          reason: 'la lista asomó en el cuadro $i',
+        );
+      }
+      await pumpIo(tester, ticks: 6);
+      expect(find.byType(PlayerScreen), findsOneWidget);
+    },
+  );
+
+  testWidgets(
     'con la fuente automática apagada, «siguiente» abre la lista de streams',
     (tester) async {
       final meta = Meta.fromJson(seriesMeta('tt0903747', 'Breaking Bad'));

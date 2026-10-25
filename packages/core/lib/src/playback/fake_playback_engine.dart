@@ -31,6 +31,14 @@ class FakePlaybackEngine implements PlaybackEngine {
   /// ni primer cuadro), como una fuente que no responde.
   bool stallOnOpen = false;
 
+  /// Si no es `null`, [addExternalSubtitle] espera a que se complete (un
+  /// subtítulo que todavía se baja).
+  Completer<void>? externalGate;
+
+  /// Si es `true`, [addExternalSubtitle] no suma ninguna pista (la descarga
+  /// falló).
+  bool externalFails = false;
+
   /// Última fuente que se abrió.
   PlaybackSource? lastSource;
 
@@ -144,6 +152,8 @@ class FakePlaybackEngine implements PlaybackEngine {
     String? title,
     String? language,
   }) async {
+    await externalGate?.future;
+    if (externalFails || _disposed) return;
     final track = SubtitleTrack(
       id: 'external-${++_externalCount}',
       title: title,

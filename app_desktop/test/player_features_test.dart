@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -666,6 +667,97 @@ void main() {
 
     await tester.pump(const Duration(seconds: 40));
     expect(find.byKey(const Key('player-error')), findsNothing);
+  });
+
+  testWidgets('un subtítulo que todavía se baja muestra «Descargando…» y '
+      'queda elegido hasta que carga', (tester) async {
+    final fake = engine();
+    await openPlayer(tester, fake);
+    await letSubtitlesLoad(tester, fake);
+    expect(fake.state.selectedSubtitle?.language, 'spl');
+
+    fake.externalGate = Completer<void>();
+    await tester.tap(find.byKey(const Key('player-subtitle-menu')));
+    await tester.pumpAndSettle();
+    await tester.tap(_menuItem('Español'));
+    await twice(tester);
+
+    await tester.tap(find.byKey(const Key('player-subtitle-menu')));
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.text('Descargando…'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: _menuItem('Español'),
+        matching: find.byType(CircularProgressIndicator),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      tester.widget<CheckedPopupMenuItem<Object>>(_menuItem('Español')).checked,
+      isTrue,
+    );
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pump(const Duration(milliseconds: 400));
+
+    fake.externalGate!.complete();
+    await pumpIo(tester, ticks: 4);
+    expect(fake.state.selectedSubtitle?.language, 'spa');
+    await tester.tap(find.byKey(const Key('player-subtitle-menu')));
+    await tester.pumpAndSettle();
+    expect(find.text('Descargando…'), findsNothing);
+  });
+
+  testWidgets('si el subtítulo no se baja, avisa y queda el anterior', (
+    tester,
+  ) async {
+    final fake = engine();
+    await openPlayer(tester, fake);
+    await letSubtitlesLoad(tester, fake);
+
+    fake.externalFails = true;
+    await tester.tap(find.byKey(const Key('player-subtitle-menu')));
+    await tester.pumpAndSettle();
+    await tester.tap(_menuItem('Español'));
+    await pumpIo(tester, ticks: 4);
+
+    expect(find.text('No se pudo cargar el subtítulo'), findsOneWidget);
+    expect(fake.state.selectedSubtitle?.language, 'spl');
+    await tester.tap(find.byKey(const Key('player-subtitle-menu')));
+    await tester.pumpAndSettle();
+    expect(find.text('Descargando…'), findsNothing);
+  });
+
+  testWidgets('el overlay de carga se va con el primer cuadro real y no '
+      'antes', (tester) async {
+    final fake = engine()..stallOnOpen = true;
+    await openPlayer(tester, fake);
+    expect(find.byKey(const Key('player-loading')), findsOneWidget);
+
+    // Antes de medio segundo de video real, sigue.
+    fake.setBuffering(false);
+    fake.tick(const Duration(milliseconds: 300));
+    await twice(tester);
+    expect(find.byKey(const Key('player-loading')), findsOneWidget);
+
+    // Un stream en vivo (sin duración) que avanza ya arrancó: se va.
+    fake.tick(const Duration(milliseconds: 300));
+    await twice(tester);
+    expect(find.byKey(const Key('player-loading')), findsNothing);
+  });
+
+  testWidgets('con duración pero cargando, el overlay sigue hasta que '
+      'termina de cargar', (tester) async {
+    final fake = engine();
+    await openPlayer(tester, fake);
+    await twice(tester);
+    expect(find.byKey(const Key('player-loading')), findsNothing);
+
+    fake.setBuffering(true);
+    await twice(tester);
+    expect(find.byKey(const Key('player-loading')), findsOneWidget);
+    fake.setBuffering(false);
+    await twice(tester);
+    expect(find.byKey(const Key('player-loading')), findsNothing);
   });
 }
 

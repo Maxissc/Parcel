@@ -126,4 +126,38 @@ void main() {
       expect(parseMpvInt(''), isNull);
     });
   });
+
+  group('capítulo de créditos', () {
+    test('toma el inicio del capítulo «Credits»', () {
+      const chapters =
+          '[{"title":"Intro","time":0.0},{"title":"Episodio","time":95.5},'
+          '{"title":"Credits","time":2530.25}]';
+      expect(
+        creditsStartFromChapters(chapters),
+        const Duration(milliseconds: 2530250),
+      );
+    });
+
+    test('entiende «Créditos» y mayúsculas', () {
+      expect(
+        creditsStartFromChapters('[{"title":"END CREDITS","time":10}]'),
+        const Duration(seconds: 10),
+      );
+      expect(
+        creditsStartFromChapters('[{"title":"Créditos finales","time":20}]'),
+        const Duration(seconds: 20),
+      );
+    });
+
+    test('sin capítulos, vacío o basura devuelve null', () {
+      expect(creditsStartFromChapters('[]'), isNull);
+      expect(creditsStartFromChapters(''), isNull);
+      expect(creditsStartFromChapters('no es json'), isNull);
+      expect(
+        creditsStartFromChapters('[{"title":"Episodio","time":1}]'),
+        isNull,
+      );
+      expect(creditsStartFromChapters('[{"time":5}]'), isNull);
+    });
+  });
 }

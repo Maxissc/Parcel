@@ -113,6 +113,30 @@ void main() {
     await pumpIo(tester, ticks: 4);
   });
 
+  testWidgets('al arrancar con autoplay la lista de fuentes no se ve ni un '
+      'cuadro', (tester) async {
+    world.routes[_streamsKey] = {
+      'streams': [_stream('Uno 1080p', 'a.mkv'), _stream('Dos 720p', 'b.mkv')],
+    };
+    await play(tester, [fake()]);
+
+    // Desde el primer cuadro hasta que abre el reproductor.
+    for (var i = 0; i < 60; i++) {
+      expect(
+        find.byType(StreamsScreen),
+        findsNothing,
+        reason: 'la lista asomó en el cuadro $i',
+      );
+      expect(find.text('Uno 1080p'), findsNothing);
+      await tester.pump(const Duration(milliseconds: 16));
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 2)),
+      );
+    }
+    await pumpIo(tester, ticks: 8);
+    expect(find.byType(PlayerScreen), findsOneWidget);
+  });
+
   testWidgets('si la fuente falla al abrir, pasa a la siguiente con el aviso', (
     tester,
   ) async {
