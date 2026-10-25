@@ -567,6 +567,18 @@ void main() {
       await leavePlayer(tester);
     });
 
+    testWidgets('al principio del episodio no sale la tarjeta (sin capítulo de '
+        'créditos al final)', (tester) async {
+      final fake = engine();
+      await openPlayer(tester, fake, episodeArgs());
+      fake.emitStats(const PlaybackStats());
+      await seekTo(tester, fake, const Duration(seconds: 5));
+      expect(find.byKey(const Key('player-next-card')), findsNothing);
+      await tester.pump(const Duration(seconds: 15));
+      expect(find.byType(PlayerScreen), findsOneWidget);
+      await leavePlayer(tester);
+    });
+
     testWidgets('volver atrás del video rearma: sin tarjeta ni cuenta', (
       tester,
     ) async {

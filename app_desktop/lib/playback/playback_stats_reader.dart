@@ -76,9 +76,11 @@ int? parseMpvInt(String raw) {
 }
 
 /// Dónde empiezan los créditos, según `chapter-list` de mpv (un JSON con
-/// `title` y `time` en segundos por capítulo): el primer capítulo cuyo título
-/// dice «credits» o «créditos». `null` si el archivo no lo trae.
-Duration? creditsStartFromChapters(String raw) {
+/// `title` y `time` en segundos por capítulo): el **último** capítulo cuyo
+/// título dice «credits» o «créditos» y que empieza después del 70 % de
+/// [duration] (un «Opening Credits» al principio no cuenta). `null` si el
+/// archivo no trae uno así.
+Duration? creditsStartFromChapters(String raw, Duration duration) {
   final Object? decoded;
   try {
     decoded = jsonDecode(raw);
@@ -86,15 +88,17 @@ Duration? creditsStartFromChapters(String raw) {
     return null;
   }
   if (decoded is! List) return null;
+  final minimum = duration * 0.7;
+  Duration? found;
   for (final chapter in decoded) {
     if (chapter is! Map) continue;
     final title = chapter['title'];
     final time = chapter['time'];
     if (title is! String || time is! num) continue;
     final lower = title.toLowerCase();
-    if (lower.contains('credit') || lower.contains('crédit')) {
-      return _seconds(time);
-    }
+    if (!lower.contains('credit') && !lower.contains('crédit')) continue;
+    final start = _seconds(time);
+    if (start > minimum) found = start;
   }
-  return null;
+  return found;
 }

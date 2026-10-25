@@ -304,7 +304,10 @@ class MediaKitPlaybackEngine implements PlaybackEngine, VideoSurfaceProvider {
       Future<String> get(String name) => platform.getProperty(name);
       if (!_chaptersRead && _state.duration > Duration.zero) {
         _chaptersRead = true;
-        _creditsStart = creditsStartFromChapters(await get('chapter-list'));
+        _creditsStart = creditsStartFromChapters(
+          await get('chapter-list'),
+          _state.duration,
+        );
       }
       final fps =
           parseMpvDouble(await get('estimated-vf-fps')) ??
