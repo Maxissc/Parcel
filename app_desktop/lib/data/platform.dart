@@ -139,3 +139,28 @@ class DesktopWindowService implements WindowService {
 final windowServiceProvider = Provider<WindowService>(
   (ref) => const NoopWindowService(),
 );
+
+/// Quién tiene la pantalla completa mientras se reproduce. Al pasar de un
+/// episodio al que sigue, la pantalla nueva toma la ventana antes de que la
+/// vieja la suelte: la pantalla completa solo se deja cuando se va el último.
+class FullScreenOwners {
+  FullScreenOwners(this._window);
+
+  final WindowService _window;
+  int _owners = 0;
+
+  /// Toma la ventana. Solo el primero fija [fullScreen]; los que llegan
+  /// después respetan cómo está (el usuario pudo cambiarla con F).
+  Future<void> acquire({required bool fullScreen}) async {
+    if (_owners++ == 0) await _window.setFullScreen(fullScreen);
+  }
+
+  /// Suelta la ventana; si no queda nadie, sale de pantalla completa.
+  Future<void> release() async {
+    if (_owners > 0 && --_owners == 0) await _window.setFullScreen(false);
+  }
+}
+
+final fullScreenOwnersProvider = Provider<FullScreenOwners>(
+  (ref) => FullScreenOwners(ref.watch(windowServiceProvider)),
+);

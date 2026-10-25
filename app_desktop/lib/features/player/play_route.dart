@@ -17,6 +17,7 @@ import '../../shared/remote_image.dart';
 import '../../shared/state_views.dart';
 import '../streams/streams_args.dart';
 import 'play_args.dart';
+import 'addon_subtitles.dart';
 import 'play_item.dart';
 import 'player_route.dart';
 import 'source_candidates.dart';
@@ -43,6 +44,8 @@ class PlayRoute extends ConsumerStatefulWidget {
 
 class _PlayRouteState extends ConsumerState<PlayRoute> {
   late final WindowService _window;
+  late final FullScreenOwners _fullScreen;
+  late final ContentSubtitles _content;
   late final DiagLog _diag;
   final Completer<void> _cancel = Completer<void>();
   final Completer<void> _resumeAnswered = Completer<void>();
@@ -68,30 +71,41 @@ class _PlayRouteState extends ConsumerState<PlayRoute> {
   void initState() {
     super.initState();
     _window = ref.read(windowServiceProvider);
+    _fullScreen = ref.read(fullScreenOwnersProvider);
     _diag = ref.read(diagLogProvider);
+    _content = newContentSubtitles(ref, _cancel.future);
     _resume = _args.resume;
     unawaited(
-      _window.setFullScreen(ref.read(appSettingsProvider).openFullScreen),
+      _fullScreen.acquire(
+        fullScreen: ref.read(appSettingsProvider).openFullScreen,
+      ),
     );
     if (ref.read(diagnosticsConfigProvider)?.cycleFullscreen ?? false) {
       unawaited(_diagFullscreenCycle());
     }
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) unawaited(_resolveResume());
-    });
     final chosen = _args.chosen;
     if (chosen != null) {
       _auto = false;
       _candidates = _args.candidates.isEmpty ? [chosen] : _args.candidates;
-      unawaited(_playWhenResumeKnown(chosen));
     } else {
       _diag.log('autoplay: buscando la mejor fuente');
-      _streamsSub = ref.listenManual(
-        streamsProvider(_args.key),
-        _onStreams,
-        fireImmediately: true,
-      );
     }
+    // Nada que cambie el estado corre dentro de `initState`: la pregunta de
+    // continuar, la elección de la fuente y el primer aviso del proveedor
+    // esperan al primer cuadro.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      unawaited(_resolveResume());
+      if (chosen != null) {
+        unawaited(_playWhenResumeKnown(chosen));
+      } else {
+        _streamsSub = ref.listenManual(
+          streamsProvider(_args.key),
+          _onStreams,
+          fireImmediately: true,
+        );
+      }
+    });
   }
 
   /// Si el video ya se había empezado, pregunta antes de seguir (mientras la
@@ -158,7 +172,8 @@ class _PlayRouteState extends ConsumerState<PlayRoute> {
     if (!_cancel.isCompleted) _cancel.complete();
     _grace?.cancel();
     _streamsSub?.close();
-    unawaited(_window.setFullScreen(false));
+    unawaited(_fullScreen.release());
+    _content.dispose();
     super.dispose();
   }
 
@@ -258,6 +273,9 @@ class _PlayRouteState extends ConsumerState<PlayRoute> {
 
   void _exhaust() {
     if (!mounted) return;
+    // Estado terminal: ni el proveedor ni la gracia vuelven a elegir.
+    _selecting = true;
+    _grace?.cancel();
     _diag.log('autoplay: no hay una fuente que ande');
     setState(() => _phase = _Phase.exhausted);
   }
@@ -350,6 +368,9 @@ class _PlayRouteState extends ConsumerState<PlayRoute> {
       key: ValueKey(_attempt),
       manageWindow: false,
       popBeforeNext: args.fromStreams,
+      // El mismo contenido comparte catálogo (y lo ya analizado) entre todos
+      // los intentos de fuente.
+      content: _content,
       onOpenFailed: _auto ? () => unawaited(_onOpenFailed()) : null,
       sourceMenu: index < 0 || _candidates.length < 2
           ? null

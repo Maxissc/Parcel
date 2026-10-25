@@ -7,8 +7,14 @@ class FakeWindowService implements WindowService {
   bool fullScreen;
   String? title;
 
+  /// Cada valor que la app pidió con `setFullScreen`, en orden.
+  final List<bool> fullScreenCalls = [];
+
   @override
-  Future<void> setFullScreen(bool value) async => fullScreen = value;
+  Future<void> setFullScreen(bool value) async {
+    fullScreenCalls.add(value);
+    fullScreen = value;
+  }
 
   @override
   Future<bool> isFullScreen() async => fullScreen;

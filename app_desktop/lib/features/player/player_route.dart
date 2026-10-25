@@ -106,12 +106,17 @@ class PlayerRoute extends ConsumerStatefulWidget {
     this.onOpenFailed,
     this.manageWindow = true,
     this.popBeforeNext = true,
+    this.content,
   });
 
   final PlayerArgs args;
   final SourceMenu? sourceMenu;
   final VoidCallback? onOpenFailed;
   final bool manageWindow;
+
+  /// Los subtítulos del contenido, si quien llama los comparte entre varios
+  /// intentos (y se ocupa de cerrarlos). Sin esto la ruta arma los suyos.
+  final ContentSubtitles? content;
 
   /// Al pasar al episodio que sigue, primero cierra esta ruta (porque debajo
   /// está la pantalla de streams del episodio anterior, que se reemplaza).
@@ -124,6 +129,9 @@ class PlayerRoute extends ConsumerStatefulWidget {
 class _PlayerRouteState extends ConsumerState<PlayerRoute> {
   late final PlaybackEngine _engine;
   late final WindowService _window;
+  late final FullScreenOwners _fullScreen;
+  ContentSubtitles? _ownContent;
+  Completer<void>? _cancelSubtitles;
   late final ProgressSaver _saver;
   late final DiagLog _diag;
   late final ActivePlayer _active;
@@ -144,6 +152,7 @@ class _PlayerRouteState extends ConsumerState<PlayerRoute> {
   void initState() {
     super.initState();
     _window = ref.read(windowServiceProvider);
+    _fullScreen = ref.read(fullScreenOwnersProvider);
     _saver = ref.read(progressSaverProvider);
     _diag = ref.read(diagLogProvider);
     _delays = ref.read(subtitleDelaysProvider);
@@ -176,7 +185,7 @@ class _PlayerRouteState extends ConsumerState<PlayerRoute> {
     }
     final settings = ref.read(appSettingsProvider);
     if (widget.manageWindow) {
-      unawaited(_window.setFullScreen(settings.openFullScreen));
+      unawaited(_fullScreen.acquire(fullScreen: settings.openFullScreen));
     }
     final title = _args.item?.title ?? _args.title;
     if (title != null) unawaited(_window.setTitle('$title · $appName'));
@@ -188,16 +197,13 @@ class _PlayerRouteState extends ConsumerState<PlayerRoute> {
         subtitleLanguage: settings.subtitleLanguage,
         originalLanguage: inferOriginalLanguage(item.meta),
       );
-      _catalog = SubtitleCatalog(
-        fetcher: ref.read(subtitleFetcherProvider),
-        priority:
-            subtitlePriorityFor(settings.subtitleLanguage) ??
-            SubtitleLanguage.defaultPriority,
-      );
-      _addonSubtitles = fetchAddonSubtitles(
-        ref.read(addonAggregatorProvider),
-        item,
-      );
+      var content = widget.content;
+      if (content == null) {
+        final cancel = _cancelSubtitles = Completer<void>();
+        content = _ownContent = newContentSubtitles(ref, cancel.future);
+      }
+      _catalog = content.catalog;
+      _addonSubtitles = content.forItem(item);
     }
 
     final saved = _savedProgress();
@@ -244,9 +250,10 @@ class _PlayerRouteState extends ConsumerState<PlayerRoute> {
   void dispose() {
     _statsLog?.cancel();
     _active.unregister(_saveNow);
-    if (widget.manageWindow) unawaited(_window.setFullScreen(false));
+    if (widget.manageWindow) unawaited(_fullScreen.release());
     unawaited(_window.setTitle(appName));
-    _catalog?.dispose();
+    if (_cancelSubtitles?.isCompleted == false) _cancelSubtitles!.complete();
+    _ownContent?.dispose();
     // Si nunca se llegó a armar la pantalla, el motor sigue siendo de la ruta.
     if (!_screenBuilt) unawaited(_engine.dispose());
     super.dispose();
@@ -339,12 +346,6 @@ class _PlayerRouteState extends ConsumerState<PlayerRoute> {
     final item = _args.item;
     if (item == null) return null;
     final meta = item.meta;
-    final text = [
-      item.stream.name,
-      item.stream.title,
-      item.stream.description,
-      item.stream.behaviorHints.filename,
-    ].whereType<String>().join(' ');
     final year = meta.releaseInfo ?? meta.released?.year.toString();
     final name = item.stream.name
         ?.split('\n')
@@ -354,7 +355,6 @@ class _PlayerRouteState extends ConsumerState<PlayerRoute> {
     return PlayerInfo(
       addonName: item.addonName,
       streamName: name == null ? null : redactUrlsInText(name),
-      atmos: RegExp(r'atmos', caseSensitive: false).hasMatch(text),
       imdbRating: meta.imdbRating,
       year: year,
       runtime: meta.runtime,

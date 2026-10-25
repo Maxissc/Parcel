@@ -288,4 +288,81 @@ void main() {
     expect(find.text('No encontramos una fuente lista'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('a los 19 s la fuente sigue; un stream en vivo que avanza no '
+      'se saltea', (tester) async {
+    world.routes[_streamsKey] = {
+      'streams': [_stream('Uno 1080p', 'a.mkv'), _stream('Dos 1080p', 'b.mkv')],
+    };
+    final stalled = fake()..stallOnOpen = true;
+    final good = fake();
+    await play(tester, [stalled, good]);
+    await pumpIo(tester, ticks: 6);
+
+    await tester.pump(const Duration(seconds: 19));
+    expect(good.openCount, 0, reason: 'a los 19 s todavía se espera');
+
+    // La posición avanza sin duración (en vivo): ya arrancó.
+    stalled.tick(const Duration(seconds: 1));
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 30));
+    await pumpIo(tester, ticks: 4);
+
+    expect(good.openCount, 0);
+    expect(find.byType(PlayerScreen), findsOneWidget);
+  });
+
+  testWidgets('cada intento de fuente reusa el pedido de subtítulos del '
+      'contenido', (tester) async {
+    world.routes[_streamsKey] = {
+      'streams': [_stream('Uno 1080p', 'a.mkv'), _stream('Dos 1080p', 'b.mkv')],
+    };
+    world.routes['opensubtitles-v3.strem.io/subtitles/movie/tt0133093.json'] = {
+      'subtitles': [
+        {'id': 'es', 'url': 'http://subs.example.com/es.srt', 'lang': 'spa'},
+      ],
+    };
+    final broken = fake(openError: 'Failed to open');
+    final good = fake();
+    await play(tester, [broken, good]);
+    await pumpIo(tester, ticks: 12);
+
+    expect(good.lastSource?.url, 'http://media.example.com/b.mkv');
+    expect(world.count('opensubtitles-v3.strem.io/subtitles'), 1);
+  });
+
+  testWidgets('volver mientras prueba las fuentes cancela: no se abre ningún '
+      'motor', (tester) async {
+    world.routes[_streamsKey] = {
+      'streams': [_stream('Uno 1080p', 'a.mkv')],
+    };
+    final gate = Completer<void>();
+    final prober = StreamProber(
+      MockClient((request) async {
+        await gate.future;
+        return http.Response(
+          '',
+          206,
+          headers: {
+            'content-type': 'video/mp4',
+            'content-range': 'bytes 0-0/52428800',
+          },
+        );
+      }),
+    );
+    final engine = fake();
+    await play(tester, [engine], prober: prober);
+    await pumpIo(tester, ticks: 8);
+    expect(find.text('Buscando la mejor fuente…'), findsOneWidget);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await pumpIo(tester, ticks: 6);
+    expect(find.text('Buscando la mejor fuente…'), findsNothing);
+
+    gate.complete();
+    await pumpIo(tester, ticks: 8);
+    expect(engine.openCount, 0);
+    expect(find.byType(PlayerScreen), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
 }

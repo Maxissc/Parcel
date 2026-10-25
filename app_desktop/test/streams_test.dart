@@ -14,6 +14,7 @@ import 'package:parcel_desktop/features/streams/streams_args.dart';
 import 'package:parcel_desktop/features/streams/streams_screen.dart';
 
 import 'support/catalog_world.dart';
+import 'support/fakes.dart';
 import 'support/pump.dart';
 import 'support/test_env.dart';
 
@@ -52,9 +53,11 @@ AddonStream _s(Map<String, dynamic> json) =>
 void main() {
   late Directory dir;
   late CatalogWorld world;
+  late FakeWindowService window;
 
   setUp(() {
     dir = makeTempDir();
+    window = FakeWindowService();
     world = CatalogWorld();
     world.routes[_firstKey] = _streamsBody();
   });
@@ -70,6 +73,7 @@ void main() {
     FakePlaybackEngine? engine,
     List<FakePlaybackEngine> more = const [],
     bool? autoSelectSource,
+    WindowService window = const NoopWindowService(),
   }) async {
     // Cada vez que se abre un reproductor sale el siguiente motor de la fila.
     final engines = [?engine, ...more];
@@ -86,6 +90,7 @@ void main() {
       dir,
       world.client,
       openedUrls: openedUrls,
+      window: window,
       overrides: [
         if (engines.isNotEmpty)
           playbackEngineFactoryProvider.overrideWithValue(
@@ -323,14 +328,14 @@ void main() {
         addons: const [streamsAddonUrl],
         engine: engine,
         more: [nextEngine],
+        window: window,
       );
       await tester.tap(find.text('Episodio 3'));
-      await pumpIo(tester, ticks: 4);
-      expect(find.byType(PlayerScreen), findsOneWidget);
+      await pumpUntil(tester, find.byType(PlayerScreen));
+      expect(window.fullScreenCalls.last, isTrue);
 
       engine.tick(const Duration(minutes: 11));
-      await tester.pump();
-      await tester.pump();
+      await pumpUntil(tester, find.text('Ver siguiente episodio'));
       await tester.tap(find.text('Ver siguiente episodio'));
       await pumpIo(tester, ticks: 6);
 
@@ -338,11 +343,18 @@ void main() {
       expect(find.byType(StreamsScreen), findsNothing);
       expect(find.byType(PlayerScreen), findsOneWidget);
       expect(nextEngine.lastSource?.url, 'http://media.example.com/e4.mkv');
+      // El cambio de ruta no saca la pantalla completa.
+      expect(window.fullScreenCalls.last, isTrue);
+      expect(window.fullScreen, isTrue);
 
+      // El primer Esc sale de pantalla completa; el segundo vuelve al detalle.
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await pumpIo(tester, ticks: 3);
       await tester.sendKeyEvent(LogicalKeyboardKey.escape);
       await pumpIo(tester, ticks: 6);
       expect(find.byType(PlayerScreen), findsNothing);
       expect(find.byType(NavigationRail), findsOneWidget);
+      expect(window.fullScreenCalls.last, isFalse);
     },
   );
 
@@ -381,17 +393,17 @@ void main() {
         autoSelectSource: false,
       );
       await tester.tap(find.text('Episodio 3'));
-      await pumpIo(tester, ticks: 4);
+      await pumpUntil(tester, find.byType(PlayerScreen));
       engine.tick(const Duration(minutes: 11));
-      await tester.pump();
-      await tester.pump();
+      await pumpUntil(tester, find.text('Ver siguiente episodio'));
       await tester.tap(find.text('Ver siguiente episodio'));
-      await pumpIo(tester, ticks: 6);
+      await pumpUntil(tester, find.text('Igual que el anterior'));
 
       expect(find.byType(PlayerScreen), findsNothing);
       expect(find.byType(StreamsScreen), findsOneWidget);
       expect(find.text('T2 E1 · Episodio 2x1'), findsOneWidget);
-      expect(find.text('Igual que el anterior'), findsOneWidget);
+      // Deja terminar la escritura del progreso antes de borrar la carpeta.
+      await pumpIo(tester, ticks: 12);
     },
   );
 
