@@ -122,6 +122,15 @@ class _Title extends StatelessWidget {
         fit: BoxFit.contain,
         cacheHeight: (180 * MediaQuery.devicePixelRatioOf(context)).round(),
         excludeFromSemantics: true,
+        frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
+          if (wasSynchronouslyLoaded) return child;
+          return AnimatedOpacity(
+            opacity: frame == null ? 0 : 1,
+            duration: const Duration(milliseconds: 250),
+            curve: Curves.easeOut,
+            child: child,
+          );
+        },
         errorBuilder: (_, _, _) => name,
       ),
     );
