@@ -102,6 +102,7 @@ void main() {
       world.client,
       urls: [cinemetaUrl, subtitlesUrl, streamsAddonUrl],
       onboardingCompleted: true,
+      openFullScreen: true,
       audioLanguage: audioLanguage,
       subtitleLanguage: subtitleLanguage,
       progress: [?saved],

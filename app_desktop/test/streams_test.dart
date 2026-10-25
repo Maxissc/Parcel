@@ -84,6 +84,7 @@ void main() {
       urls: [cinemetaUrl, subtitlesUrl, ...addons],
       onboardingCompleted: true,
       autoSelectSource: autoSelectSource,
+      openFullScreen: true,
     );
     await pumpApp(
       tester,

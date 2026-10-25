@@ -34,8 +34,9 @@ const List<({String code, String label})> subtitleLanguageOptions = [
 
 /// Versión del formato de `settings.json`. La 2 distingue «sin preferencia»
 /// (elegido) de «nunca elegí»: en la 1 los dos eran `null`. La 3 suma el orden
-/// de la home y «Pasar solo al siguiente episodio».
-const int settingsVersion = 3;
+/// de la home y «Pasar solo al siguiente episodio». La 4 apaga «Abrir en
+/// pantalla completa» (antes venía prendido por defecto) una sola vez.
+const int settingsVersion = 4;
 
 const Object _keep = Object();
 
@@ -47,7 +48,7 @@ class AppSettings {
     this.subtitleLanguage = latamSubtitleCode,
     this.autoSelectSource = true,
     this.quality = QualityPreference.p1080,
-    this.openFullScreen = true,
+    this.openFullScreen = false,
     this.tmdbApiKey,
     this.homeLayout = const HomeLayout(),
     this.autoPlayNext = true,
@@ -148,7 +149,7 @@ class AppSettings {
       quality:
           QualityPreference.values.asNameMap()[quality] ??
           QualityPreference.p1080,
-      openFullScreen: json['openFullScreen'] != false,
+      openFullScreen: version >= 4 && json['openFullScreen'] == true,
       tmdbApiKey: tmdb is String && tmdb.trim().isNotEmpty ? tmdb.trim() : null,
       homeLayout: HomeLayout(
         order: strings('homeOrder'),

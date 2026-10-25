@@ -142,7 +142,7 @@ void main() {
         tester
             .widget<SwitchListTile>(find.byKey(const Key('setting-fullscreen')))
             .value,
-        isTrue,
+        isFalse,
       );
 
       await tester.tap(find.byKey(const Key('setting-auto-source')));
@@ -156,7 +156,7 @@ void main() {
 
       final saved = File('${dir.path}/settings.json').readAsStringSync();
       expect(saved, contains('"autoSelectSource":false'));
-      expect(saved, contains('"openFullScreen":false'));
+      expect(saved, contains('"openFullScreen":true'));
       expect(saved, contains('"quality":"p2160"'));
     });
 

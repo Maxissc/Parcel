@@ -83,7 +83,7 @@ void main() {
       expect(defaults.subtitleLanguage, 'latam');
       expect(defaults.autoSelectSource, isTrue);
       expect(defaults.quality, QualityPreference.p1080);
-      expect(defaults.openFullScreen, isTrue);
+      expect(defaults.openFullScreen, isFalse);
       expect(defaults.tmdbApiKey, isNull);
     });
 
@@ -112,6 +112,38 @@ void main() {
         final store = await SettingsStore.open(path);
         expect(store.value.audioLanguage, 'eng');
         expect(store.value.subtitleLanguage, 'latam');
+      },
+    );
+
+    test('migración: la versión 3 pasa a abrir sin pantalla completa', () async {
+      final path = '${dir.path}/settings.json';
+      File(path).writeAsStringSync(
+        '{"version":3,"openFullScreen":true,"audioLanguage":"eng"}',
+      );
+      final store = await SettingsStore.open(path);
+      expect(store.value.openFullScreen, isFalse);
+      expect(store.value.audioLanguage, 'eng');
+    });
+
+    test(
+      'migración: un archivo sin versión tampoco abre en pantalla completa',
+      () async {
+        final path = '${dir.path}/settings.json';
+        File(path).writeAsStringSync('{"onboardingCompleted":true}');
+        final store = await SettingsStore.open(path);
+        expect(store.value.openFullScreen, isFalse);
+      },
+    );
+
+    test(
+      'desde la versión 4, prender la pantalla completa se respeta',
+      () async {
+        final path = '${dir.path}/settings.json';
+        final store = await SettingsStore.open(path);
+        await store.save(store.value.copyWith(openFullScreen: true));
+        expect(File(path).readAsStringSync(), contains('"version":4'));
+        final reopened = await SettingsStore.open(path);
+        expect(reopened.value.openFullScreen, isTrue);
       },
     );
 
