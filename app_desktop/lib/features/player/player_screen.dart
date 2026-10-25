@@ -154,7 +154,8 @@ class PlayerScreen extends StatefulWidget {
   State<PlayerScreen> createState() => _PlayerScreenState();
 }
 
-class _PlayerScreenState extends State<PlayerScreen> {
+class _PlayerScreenState extends State<PlayerScreen>
+    with WidgetsBindingObserver {
   static const _seekStep = Duration(seconds: 10);
   static const _volumeStep = 0.05;
   static const _doubleTap = Duration(milliseconds: 300);
@@ -179,6 +180,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
   bool _wasPlaying = false;
   bool _wasCompleted = false;
   bool _nextDismissed = false;
+
+  /// El usuario canceló la cuenta (o cerró la tarjeta) en estos créditos: no
+  /// vuelve a arrancar hasta que se salga de ellos.
+  bool _countdownCancelled = false;
+
+  /// La ventana está en primer plano (la cuenta no corre si no).
+  bool _appActive = true;
   Timer? _countdownTimer;
   int? _countdown;
   SubtitleEntry? _loadingEntry;
@@ -225,6 +233,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _appActive =
+        (WidgetsBinding.instance.lifecycleState ?? AppLifecycleState.resumed) ==
+        AppLifecycleState.resumed;
     _backInterceptors = BackScope.maybeOf(context)?..add(_onMouseBack);
     _catalog = widget.catalog ?? SubtitleCatalog();
     _lateLoaded = widget.lateSubtitles == null;
@@ -247,6 +259,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _backInterceptors?.remove(_onMouseBack);
     _reportProgress();
     _hideTimer?.cancel();
@@ -263,6 +276,26 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _syncFocus.dispose();
     if (widget.disposeEngine) unawaited(_engine.dispose());
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _appActive = state == AppLifecycleState.resumed;
+  }
+
+  @override
+  void didUpdateWidget(PlayerScreen old) {
+    super.didUpdateWidget(old);
+    if (old.autoNext == widget.autoNext) return;
+    // El ajuste «Pasar solo al siguiente» se lee en vivo.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (!widget.autoNext) {
+        _stopCountdown();
+      } else {
+        _updateNextEpisode(_engine.state);
+      }
+    });
   }
 
   void _onCatalogChanged() {
@@ -678,10 +711,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if (!_inCredits(s)) {
       // Salió de los créditos (volvió atrás en el video): se rearma todo.
       _stopCountdown();
+      _countdownCancelled = false;
       if (_nextDismissed) setState(() => _nextDismissed = false);
       return;
     }
-    if (widget.autoNext && !_nextDismissed && _countdownTimer == null) {
+    if (widget.autoNext &&
+        !_nextDismissed &&
+        !_countdownCancelled &&
+        _countdownTimer == null) {
       _startCountdown();
     }
   }
@@ -693,6 +730,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
         timer.cancel();
         return;
       }
+      // Con el video en pausa o la ventana sin foco la cuenta espera (al
+      // terminar el video ya no hay nada que esperar).
+      final state = _engine.state;
+      if (!_appActive || (!state.playing && !state.completed)) return;
       final left = (_countdown ?? 1) - 1;
       if (left > 0) {
         setState(() => _countdown = left);
@@ -716,6 +757,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   /// que se salga de los créditos.
   void _dismissNext() {
     _stopCountdown();
+    _countdownCancelled = true;
     setState(() => _nextDismissed = true);
   }
 
@@ -733,6 +775,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _wasPlaying = s.playing;
     _wasCompleted = s.completed;
     if (paused || finished) _reportProgress();
+    // Al terminar el video la tarjeta vuelve (sin cuenta, si se la canceló).
+    if (finished && _nextDismissed) setState(() => _nextDismissed = false);
     _updateNextEpisode(s);
     if (finished && widget.autoOpenNext && widget.next != null) {
       _decide('siguiente episodio: lo abre solo (diagnóstico)');
