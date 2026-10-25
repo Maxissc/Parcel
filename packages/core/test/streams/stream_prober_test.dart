@@ -429,9 +429,8 @@ void main() {
         );
       });
       final cancel = Completer<void>();
-      final future = StreamProber(
-        fake.client,
-      ).probe(_stream(), abortTrigger: cancel.future);
+      final future = StreamProber(fake.client)
+          .probe(_stream(), abortTrigger: cancel.future);
       await Future<void>.delayed(const Duration(milliseconds: 10));
       cancel.complete();
       expect((await future).failure, ProbeFailure.cancelled);
@@ -455,7 +454,9 @@ void main() {
 
     test('206: cancela el cuerpo', () async {
       var cancelled = false;
-      final body = StreamController<List<int>>(onCancel: () => cancelled = true);
+      final body = StreamController<List<int>>(
+        onCancel: () => cancelled = true,
+      );
       final fake = _Fake(
         (_) async => withBody(body, 206, {
           'content-type': 'video/mp4',
@@ -470,7 +471,9 @@ void main() {
 
     test('200 sin Range: cancela el cuerpo', () async {
       var cancelled = false;
-      final body = StreamController<List<int>>(onCancel: () => cancelled = true);
+      final body = StreamController<List<int>>(
+        onCancel: () => cancelled = true,
+      );
       final fake = _Fake(
         (_) async => withBody(body, 200, {'content-type': 'video/mp4'}),
       );

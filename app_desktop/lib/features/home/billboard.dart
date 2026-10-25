@@ -55,7 +55,8 @@ final billboardItemsProvider = Provider.autoDispose<List<BillboardItem>>((ref) {
       ),
     );
   }
-  for (final catalog in ref.watch(homeRowsProvider)) {
+  // Se miran pocas filas: el destacado no tiene que pedir toda la home.
+  for (final catalog in ref.watch(homeRowsProvider).take(3)) {
     if (items.length >= billboardMax) break;
     final result = ref
         .watch(catalogItemsProvider((catalog: catalog, search: null)))
@@ -170,6 +171,7 @@ class _BillboardState extends ConsumerState<Billboard>
                     children: [
                       for (var i = 0; i < items.length; i++)
                         _Dot(
+                          key: Key('billboard-dot-$i'),
                           selected: i == index,
                           label: 'Destacado ${i + 1}',
                           onTap: () => _select(i),
@@ -188,6 +190,7 @@ class _BillboardState extends ConsumerState<Billboard>
 
 class _Dot extends StatelessWidget {
   const _Dot({
+    super.key,
     required this.selected,
     required this.label,
     required this.onTap,

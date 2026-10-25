@@ -31,6 +31,10 @@ Map<String, dynamic> cinemetaManifest() => {
       'extra': [
         {'name': 'search'},
         {'name': 'skip'},
+        {
+          'name': 'genre',
+          'options': ['Acción', 'Drama'],
+        },
       ],
     },
     {

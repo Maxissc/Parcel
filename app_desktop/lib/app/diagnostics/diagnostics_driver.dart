@@ -6,9 +6,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:parcel_core/parcel_core.dart' hide Video;
 
 import '../../data/browse_providers.dart';
+import '../../data/catalog_pager.dart';
+import '../../data/home_layout.dart';
 import '../../data/progress_providers.dart';
 import '../../data/providers.dart';
 import '../../features/detail/detail_utils.dart';
+import '../../features/home/home_rows.dart';
 import '../../features/onboarding/onboarding_controller.dart';
 import '../../features/player/play_args.dart';
 import '../../features/player/play_item.dart';
@@ -119,7 +122,10 @@ class _DiagnosticsDriverState extends ConsumerState<DiagnosticsDriver> {
       ref.read(routerProvider).go(Routes.home);
     }
     try {
+      final hide = config.hideRow;
+      if (hide != null) await _hideRow(hide);
       await _logHome();
+      if (config.seeAll) await _logSeeAll();
       final search = config.search;
       if (search != null) await _logSearch(search);
       final open = config.open;
@@ -131,19 +137,48 @@ class _DiagnosticsDriverState extends ConsumerState<DiagnosticsDriver> {
     }
   }
 
+  /// Oculta la fila [index] de la home y deja el ajuste guardado.
+  Future<void> _hideRow(int index) async {
+    final rows = ref.read(homeAllRowsProvider);
+    if (index < 0 || index >= rows.length) {
+      _log.log('diagnóstico: no hay una fila $index para ocultar');
+      return;
+    }
+    final layout = ref.read(appSettingsProvider).homeLayout;
+    await ref
+        .read(appSettingsProvider.notifier)
+        .setHomeLayout(
+          layout.copyWith(
+            order: [for (final r in rows) homeRowKey(r)],
+            hidden: {...layout.hidden, homeRowKey(rows[index])},
+          ),
+        );
+    final c = rows[index];
+    _log.log(
+      'home: oculta la fila «${c.catalog.name} · ${typeLabel(c.catalog.type)}» '
+      '(${c.addon.manifest.name})',
+    );
+  }
+
+  /// La home pide cada fila cuando se acerca a la pantalla: se espera un
+  /// momento a las que ya salieron y se cuenta cuáles se pidieron y cuáles no.
   Future<void> _logHome() async {
-    final catalogs = ref.read(addonAggregatorProvider).homeCatalogs();
-    final results = await Future.wait([
-      for (final catalog in catalogs)
-        _await(catalogItemsProvider((catalog: catalog, search: null))),
-    ]);
+    final catalogs = ref.read(homeRowsProvider);
+    final hidden = ref.read(homeAllRowsProvider).length - catalogs.length;
+    await Future<void>.delayed(const Duration(seconds: 4));
+    var requested = 0;
     var withItems = 0;
-    for (var i = 0; i < catalogs.length; i++) {
-      final c = catalogs[i];
+    for (final c in catalogs) {
+      final key = (catalog: c, search: null);
       final name =
           '«${c.catalog.name} · ${typeLabel(c.catalog.type)}» '
           '(${c.addon.manifest.name})';
-      switch (results[i]) {
+      if (!ref.container.exists(catalogItemsProvider(key))) {
+        _log.log('home fila $name: todavía no se pidió (fuera de pantalla)');
+        continue;
+      }
+      requested++;
+      switch (await _await(catalogItemsProvider(key))) {
         case AddonFailure(:final error):
           _log.log('home fila $name: no se pudo cargar (${error.reason.name})');
         case AddonSuccess(:final value) when value.isEmpty:
@@ -153,7 +188,10 @@ class _DiagnosticsDriverState extends ConsumerState<DiagnosticsDriver> {
           _log.log('home fila $name: ${value.length} ítems');
       }
     }
-    _log.log('home: $withItems de ${catalogs.length} catálogos con ítems');
+    _log.log(
+      'home: $requested de ${catalogs.length} filas pedidas, $withItems con '
+      'ítems${hidden > 0 ? ', $hidden ocultas' : ''}',
+    );
     final watching = ref.read(continueWatchingProvider);
     _log.log('seguir viendo: ${watching.length} ítems');
     for (final p in watching) {
@@ -165,6 +203,50 @@ class _DiagnosticsDriverState extends ConsumerState<DiagnosticsDriver> {
         '(${formatPlaybackTime(p.position)} de ${formatPlaybackTime(p.duration)})',
       );
     }
+  }
+
+  /// «Ver todo» de la primera fila: la primera página, la segunda con `skip` y
+  /// la primera de un género.
+  Future<void> _logSeeAll() async {
+    final catalogs = ref.read(homeRowsProvider);
+    if (catalogs.isEmpty) return;
+    final catalog = catalogs.first;
+    Future<CatalogPage> pageOf(PagerKey key, int pages) async {
+      final provider = catalogPagerProvider(key);
+      final hold = ref.listenManual(provider, (_, _) {});
+      try {
+        for (var i = 0; i < pages; i++) {
+          final before = ref.read(provider).items.length;
+          await ref.read(provider.notifier).loadMore();
+          if (ref.read(provider).items.length == before) break;
+        }
+        final page = ref.read(provider);
+        return page;
+      } finally {
+        hold.close();
+      }
+    }
+
+    final name = '«${catalog.catalog.name}»';
+    final first = await pageOf((catalog: catalog, genre: null), 1);
+    final two = await pageOf((catalog: catalog, genre: null), 2);
+    _log.log(
+      'ver todo $name: ${first.items.length} ítems en la primera página, '
+      '${two.items.length} con la segunda (skip)',
+    );
+    final genres = [
+      for (final e in catalog.catalog.extra)
+        if (e.name == 'genre') ...e.options,
+    ];
+    if (genres.isEmpty) {
+      _log.log('ver todo $name: el addon no declara géneros');
+      return;
+    }
+    final filtered = await pageOf((catalog: catalog, genre: genres.first), 1);
+    _log.log(
+      'ver todo $name: ${filtered.items.length} ítems con el género '
+      '«${genres.first}» (${genres.length} géneros en total)',
+    );
   }
 
   Future<void> _logSearch(String query) async {

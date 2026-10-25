@@ -39,6 +39,9 @@ class RowHeader extends StatelessWidget {
       titleText = InkWell(
         key: const Key('row-title'),
         onTap: onSeeAll,
+        // Con el teclado se llega por «Ver todo ›»; si el título también
+        // tomara el foco, ↓ desde una tarjeta pararía en él.
+        canRequestFocus: false,
         borderRadius: BorderRadius.circular(6),
         child: titleText,
       );

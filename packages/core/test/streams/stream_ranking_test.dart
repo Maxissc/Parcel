@@ -121,8 +121,14 @@ void main() {
     test('TS aislado cuenta; el grupo -TS y «TS audio» no', () {
       expect(StreamSignals.fromText('Movie 2023 TS x264').isCam, isTrue);
       expect(StreamSignals.fromText('Movie.2023.BluRay-TS').isCam, isFalse);
-      expect(StreamSignals.fromText('Movie 2023 1080p TS audio').isCam, isFalse);
-      expect(StreamSignals.fromText('Movie 2023 1080p TS-Group').isCam, isFalse);
+      expect(
+        StreamSignals.fromText('Movie 2023 1080p TS audio').isCam,
+        isFalse,
+      );
+      expect(
+        StreamSignals.fromText('Movie 2023 1080p TS-Group').isCam,
+        isFalse,
+      );
     });
 
     test('no marca CAM por una extensión .ts ni por palabras parecidas', () {

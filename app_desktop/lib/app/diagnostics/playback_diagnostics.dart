@@ -36,6 +36,11 @@ import '../../playback/playback_errors.dart';
 /// - `PARCEL_DIAG_AUTO_NEXT=1`: al terminar un episodio abre solo el que sigue
 ///   (como el botón «Ver siguiente episodio») y anota en el log si la ventana
 ///   sigue en pantalla completa.
+/// - `PARCEL_DIAG_HIDE_ROW`: número de la fila de la home (desde 0) a ocultar;
+///   queda guardado en los ajustes (para comprobar que persiste al reiniciar).
+/// - `PARCEL_DIAG_SEE_ALL=1`: abre «Ver todo» de la primera fila de la home,
+///   pide una segunda página con `skip` y filtra por el primer género, y
+///   cuenta lo que trajo cada pedido.
 /// - `PARCEL_DIAG_MIN_PROBE_BYTES`: tamaño mínimo con el que la prueba de
 ///   fuentes acepta un video (por defecto 20 MB; una muestra chica necesita 0).
 class DiagnosticsConfig {
@@ -54,6 +59,8 @@ class DiagnosticsConfig {
     this.probeMinBytes,
     this.cycleFullscreen = false,
     this.autoNext = false,
+    this.hideRow,
+    this.seeAll = false,
   });
 
   final String? url;
@@ -81,6 +88,10 @@ class DiagnosticsConfig {
   final bool cycleFullscreen;
   final bool autoNext;
 
+  /// Fila de la home a ocultar; `null` si no hay.
+  final int? hideRow;
+  final bool seeAll;
+
   /// `null` si no es debug o no está `PARCEL_DIAG`.
   static DiagnosticsConfig? fromEnvironment([Map<String, String>? env]) {
     if (!kDebugMode) return null;
@@ -107,6 +118,8 @@ class DiagnosticsConfig {
       probeMinBytes: int.tryParse(e['PARCEL_DIAG_MIN_PROBE_BYTES'] ?? ''),
       cycleFullscreen: e['PARCEL_DIAG_CYCLE_FULLSCREEN'] == '1',
       autoNext: e['PARCEL_DIAG_AUTO_NEXT'] == '1',
+      hideRow: int.tryParse(e['PARCEL_DIAG_HIDE_ROW'] ?? ''),
+      seeAll: e['PARCEL_DIAG_SEE_ALL'] == '1',
     );
   }
 }

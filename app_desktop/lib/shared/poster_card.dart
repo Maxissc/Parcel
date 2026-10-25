@@ -275,6 +275,16 @@ class _PosterCardState extends State<PosterCard>
     setState(() {});
   }
 
+  /// El menú del clic derecho: la tarjeta agrandada se va y no vuelve a crecer
+  /// mientras el menú está abierto (si no, taparía el menú).
+  void _onContextMenu(Offset position) {
+    _intent?.cancel();
+    _intent = null;
+    _overCard = false;
+    if (_open) _hide();
+    widget.onContextMenu?.call(position);
+  }
+
   void _hide() {
     _leave = null;
     if (!_open) return;
@@ -410,7 +420,7 @@ class _PosterCardState extends State<PosterCard>
                 onFocusChange: _setFocused,
                 onSecondaryTapUp: widget.onContextMenu == null
                     ? null
-                    : (d) => widget.onContextMenu!(d.globalPosition),
+                    : (d) => _onContextMenu(d.globalPosition),
                 borderRadius: radius,
                 hoverColor: Colors.transparent,
                 focusColor: Colors.transparent,
@@ -496,7 +506,7 @@ class _PosterCardState extends State<PosterCard>
                 onTap: widget.onTap,
                 onSecondaryTapUp: widget.onContextMenu == null
                     ? null
-                    : (d) => widget.onContextMenu!(d.globalPosition),
+                    : (d) => _onContextMenu(d.globalPosition),
                 child: SizedBox(
                   width: box.width,
                   height: box.height,

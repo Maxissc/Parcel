@@ -1,12 +1,14 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 
 /// «Atrás» en toda la app: Esc y el botón Atrás del mouse (el botón 4) vuelven
 /// a la pantalla anterior.
 ///
-/// Esc entra como `DismissIntent`, que solo llega acá si nadie más lo atendió
-/// (un diálogo, un menú o el reproductor lo atienden antes). El botón del
+/// Esc solo vuelve si lo que está arriba es una pantalla: un diálogo o un menú
+/// lo atienden ellos (se cierran), y el reproductor y el detalle tienen su
+/// propio Esc, que corre antes porque está más cerca del foco. El botón del
 /// mouse vuelve siempre que haya algo atrás.
 class BackNavigation extends StatelessWidget {
   const BackNavigation({super.key, required this.router, required this.child});
@@ -16,6 +18,19 @@ class BackNavigation extends StatelessWidget {
 
   void _back() {
     if (router.canPop()) router.pop();
+  }
+
+  KeyEventResult _onKey(FocusNode node, KeyEvent event) {
+    if (event is! KeyDownEvent ||
+        event.logicalKey != LogicalKeyboardKey.escape ||
+        !router.canPop()) {
+      return KeyEventResult.ignored;
+    }
+    final focusContext = FocusManager.instance.primaryFocus?.context;
+    final route = focusContext == null ? null : ModalRoute.of(focusContext);
+    if (route is! PageRoute) return KeyEventResult.ignored;
+    _back();
+    return KeyEventResult.handled;
   }
 
   @override
@@ -28,26 +43,12 @@ class BackNavigation extends StatelessWidget {
           _back();
         }
       },
-      child: Actions(
-        actions: {DismissIntent: _BackAction(router.canPop, _back)},
+      child: Focus(
+        canRequestFocus: false,
+        skipTraversal: true,
+        onKeyEvent: _onKey,
         child: child,
       ),
     );
-  }
-}
-
-class _BackAction extends Action<DismissIntent> {
-  _BackAction(this._canPop, this._back);
-
-  final bool Function() _canPop;
-  final VoidCallback _back;
-
-  @override
-  bool isEnabled(DismissIntent intent) => _canPop();
-
-  @override
-  Object? invoke(DismissIntent intent) {
-    _back();
-    return null;
   }
 }
