@@ -15,8 +15,9 @@ class SubtitleMenuData {
     required this.isSelected,
   });
 
-  /// Opciones ordenadas (embebidas y de addons).
-  final List<SubtitleEntry> entries;
+  /// Arma las opciones ordenadas (embebidas y de addons). Se llama al abrir el
+  /// menú, no en cada cuadro.
+  final List<SubtitleEntry> Function() entries;
   final SubtitleAlignment? Function(SubtitleEntry entry) alignmentOf;
 
   /// Si [entry] es la pista que suena ahora.
@@ -550,7 +551,7 @@ class _SubtitleMenu extends StatelessWidget {
           }
         } else {
           var moreLanguages = false;
-          for (final entry in data.entries) {
+          for (final entry in data.entries()) {
             if (entry.language == SubtitleLanguage.other && !moreLanguages) {
               moreLanguages = true;
               items.add(

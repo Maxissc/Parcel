@@ -11,6 +11,7 @@ import 'package:parcel_desktop/features/player/play_item.dart';
 import 'package:parcel_desktop/features/player/player_route.dart';
 
 import 'support/catalog_world.dart';
+import 'support/fakes.dart';
 import 'support/pump.dart';
 import 'support/test_env.dart';
 
@@ -36,6 +37,15 @@ String srt(int endSeconds, {double offset = 5}) {
     b.writeln();
   }
   return b.toString();
+}
+
+/// Una ventana que, al cambiar de modo, se queda con el foco del teclado.
+class _FocusStealingWindow extends FakeWindowService {
+  @override
+  Future<void> setFullScreen(bool value) async {
+    FocusManager.instance.primaryFocus?.unfocus();
+    await super.setFullScreen(value);
+  }
 }
 
 /// Los streams del motor entregan en un microtask: hace falta un segundo
@@ -82,12 +92,28 @@ void main() {
     audioTracks: audio ?? const [AudioTrack(id: '1', language: 'eng')],
   );
 
+  PlayerArgs playerArgs({Meta? m}) => PlayerArgs(
+    url: 'http://media.example.com/video.mkv',
+    item: PlayItem(
+      meta: m ?? meta(),
+      stream: AddonStream.fromJson({
+        'url': 'http://media.example.com/video.mkv?token=SECRETO',
+        'name': 'Torrentio\n1080p Atmos',
+      }),
+      addonUrl: streamsAddonUrl,
+      addonName: 'Streams uno',
+    ),
+  );
+
   Future<void> openPlayer(
     WidgetTester tester,
     FakePlaybackEngine fake, {
     Meta? m,
     String subtitleLanguage = 'latam',
+    List<FakePlaybackEngine> more = const [],
+    WindowService window = const NoopWindowService(),
   }) async {
+    final engines = [fake, ...more];
     await seedData(
       tester,
       dir,
@@ -100,23 +126,14 @@ void main() {
       tester,
       dir,
       world.client,
-      overrides: [playbackEngineFactoryProvider.overrideWithValue(() => fake)],
-    );
-    routerOf(tester).push(
-      Routes.player,
-      extra: PlayerArgs(
-        url: 'http://media.example.com/video.mkv',
-        item: PlayItem(
-          meta: m ?? meta(),
-          stream: AddonStream.fromJson({
-            'url': 'http://media.example.com/video.mkv?token=SECRETO',
-            'name': 'Torrentio\n1080p Atmos',
-          }),
-          addonUrl: streamsAddonUrl,
-          addonName: 'Streams uno',
+      overrides: [
+        playbackEngineFactoryProvider.overrideWithValue(
+          () => engines.length > 1 ? engines.removeAt(0) : engines.first,
         ),
-      ),
+      ],
+      window: window,
     );
+    routerOf(tester).push(Routes.player, extra: playerArgs(m: m));
     await pumpIo(tester, ticks: 4);
   }
 
@@ -207,7 +224,9 @@ void main() {
   testWidgets('I abre el panel de datos con lo que informa el motor', (
     tester,
   ) async {
-    final fake = engine();
+    final fake = engine(
+      audio: const [AudioTrack(id: '1', language: 'eng', title: 'Atmos')],
+    );
     await openPlayer(tester, fake);
     // Alta, para que se armen todas las filas del panel.
     tester.view.physicalSize = const Size(1280, 1600);
@@ -382,4 +401,258 @@ void main() {
       const Duration(milliseconds: 200),
     );
   });
+
+  testWidgets('Atmos sale de la pista de audio, no del nombre del stream', (
+    tester,
+  ) async {
+    // El stream se llama «1080p Atmos», pero la pista que suena no lo dice.
+    final fake = engine();
+    await openPlayer(tester, fake);
+    fake.emitStats(const PlaybackStats(audioChannels: 6));
+    await twice(tester);
+
+    expect(
+      tester.widget<Text>(find.byKey(const Key('player-stats-chips'))).data,
+      '5.1',
+    );
+  });
+
+  testWidgets(
+    'el panel de datos sin datos todavía no inventa Software ni SDR',
+    (tester) async {
+      final fake = engine();
+      await openPlayer(tester, fake);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyI);
+      await twice(tester);
+
+      expect(find.byKey(const Key('player-info-panel')), findsOneWidget);
+      expect(find.text('Software'), findsNothing);
+      expect(find.text('SDR'), findsNothing);
+    },
+  );
+
+  group('asistente de sincronización: foco', () {
+    Future<void> openAssistant(
+      WidgetTester tester,
+      FakePlaybackEngine fake,
+    ) async {
+      await openPlayer(tester, fake);
+      await letSubtitlesLoad(tester, fake);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyS);
+      await twice(tester);
+      expect(find.byKey(const Key('sync-overlay')), findsOneWidget);
+    }
+
+    testWidgets('S marca también después de F: no reabre ni borra las marcas', (
+      tester,
+    ) async {
+      final fake = engine();
+      await openAssistant(tester, fake);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyS);
+      await twice(tester);
+      expect(find.text('1 marca'), findsOneWidget);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyF);
+      await twice(tester);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyS);
+      await twice(tester);
+
+      expect(find.text('2 marcas'), findsOneWidget);
+      expect(find.byKey(const Key('sync-overlay')), findsOneWidget);
+    });
+
+    testWidgets('después de F, si la ventana se queda con el foco, vuelve al '
+        'asistente', (tester) async {
+      final fake = engine();
+      await openPlayer(tester, fake, window: _FocusStealingWindow());
+      await letSubtitlesLoad(tester, fake);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyS);
+      await twice(tester);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyF);
+      await twice(tester);
+
+      expect(FocusManager.instance.primaryFocus?.debugLabel, 'sync-overlay');
+    });
+
+    testWidgets('con el foco en el reproductor, S marca y Esc cierra el '
+        'asistente', (tester) async {
+      final fake = engine();
+      await openAssistant(tester, fake);
+      FocusManager.instance.rootScope.descendants
+          .firstWhere((n) => n.debugLabel == 'player')
+          .requestFocus();
+      await twice(tester);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyS);
+      await twice(tester);
+      expect(find.text('1 marca'), findsOneWidget);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await twice(tester);
+      expect(find.byKey(const Key('sync-overlay')), findsNothing);
+      expect(find.byKey(const Key('player-controls')), findsOneWidget);
+    });
+
+    testWidgets('I cierra el asistente y abre el panel de datos', (
+      tester,
+    ) async {
+      final fake = engine();
+      await openAssistant(tester, fake);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyI);
+      await twice(tester);
+
+      expect(find.byKey(const Key('sync-overlay')), findsNothing);
+      expect(find.byKey(const Key('player-info-panel')), findsOneWidget);
+    });
+
+    testWidgets('el menú de subtítulos no borra las marcas de un asistente '
+        'abierto', (tester) async {
+      final fake = engine();
+      await openAssistant(tester, fake);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyS);
+      await twice(tester);
+
+      await tester.tap(find.byKey(const Key('player-subtitle-menu')));
+      await tester.pumpAndSettle();
+      await tester.tap(_menuItem('Sincronizar subtítulos… (S)'));
+      await pumpIo(tester, ticks: 4);
+
+      expect(find.text('1 marca'), findsOneWidget);
+    });
+  });
+
+  testWidgets('S sin subtítulos de addons avisa en vez de abrir el asistente', (
+    tester,
+  ) async {
+    world.routes.remove(_opensubs);
+    final fake = engine();
+    await openPlayer(tester, fake);
+    await letSubtitlesLoad(tester, fake);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyS);
+    await twice(tester);
+
+    expect(find.byKey(const Key('sync-overlay')), findsNothing);
+    expect(
+      find.text('No hay subtítulos de addons para sincronizar'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('«Reintentar» vuelve a cargar el subtítulo externo elegido, '
+      'sin rehacer el análisis', (tester) async {
+    final fake = engine();
+    await openPlayer(tester, fake);
+    await letSubtitlesLoad(tester, fake);
+    expect(fake.state.selectedSubtitle?.isExternal, isTrue);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyH);
+    await twice(tester);
+    final downloads = world.count('subs.example.com');
+
+    fake.fail('Failed to open');
+    await twice(tester);
+    expect(find.byKey(const Key('player-error')), findsOneWidget);
+    await tester.tap(find.text('Reintentar'));
+    await pumpIo(tester, ticks: 8);
+
+    expect(fake.openCount, 2);
+    expect(fake.state.selectedSubtitle?.isExternal, isTrue);
+    expect(fake.state.selectedSubtitle?.language, 'spl');
+    expect(fake.state.subtitleTracks.where((t) => t.isExternal), hasLength(1));
+    expect(fake.subtitleDelay, const Duration(milliseconds: 100));
+    expect(
+      world.count('subs.example.com'),
+      downloads,
+      reason: 'el análisis es del contenido, no del intento',
+    );
+  });
+
+  testWidgets('el retraso es de cada subtítulo: al cambiar de pista vuelve a '
+      'cero y al volver se recupera', (tester) async {
+    final fake = engine();
+    await openPlayer(tester, fake);
+    tester.view.physicalSize = const Size(1280, 1600);
+    await letSubtitlesLoad(tester, fake);
+    for (var i = 0; i < 3; i++) {
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyH);
+    }
+    await twice(tester);
+    expect(fake.subtitleDelay, const Duration(milliseconds: 300));
+
+    await tester.tap(find.byKey(const Key('player-subtitle-menu')));
+    await tester.pumpAndSettle();
+    await tester.tap(_menuItem('Español'));
+    await pumpIo(tester, ticks: 4);
+    expect(fake.state.selectedSubtitle?.language, 'spa');
+    expect(fake.subtitleDelay, Duration.zero);
+    expect(find.text('Subtítulos 0,0 s'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('player-subtitle-menu')));
+    await tester.pumpAndSettle();
+    await tester.tap(_menuItem('Español (Latinoamérica)'));
+    await pumpIo(tester, ticks: 4);
+    expect(fake.state.selectedSubtitle?.language, 'spl');
+    expect(fake.subtitleDelay, const Duration(milliseconds: 300));
+  });
+
+  testWidgets('el retraso fijado se aplica al volver a abrir el reproductor', (
+    tester,
+  ) async {
+    final first = engine();
+    final second = engine();
+    await openPlayer(tester, first, more: [second]);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyH);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyH);
+    await twice(tester);
+    expect(first.subtitleDelay, const Duration(milliseconds: 200));
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await pumpIo(tester, ticks: 6);
+    expect(find.byKey(const Key('player-controls')), findsNothing);
+
+    // El mismo contenido otra vez, con otro motor: arranca con el retraso.
+    routerOf(tester).push(Routes.player, extra: playerArgs());
+    await pumpIo(tester, ticks: 6);
+
+    expect(second.openCount, 1);
+    expect(second.subtitleDelay, const Duration(milliseconds: 200));
+  });
+
+  testWidgets('una fuente elegida a mano que no arranca en 30 s muestra el '
+      'error con Reintentar y Elegir otra fuente', (tester) async {
+    final fake = engine()..stallOnOpen = true;
+    await openPlayer(tester, fake);
+
+    await tester.pump(const Duration(seconds: 29));
+    expect(find.byKey(const Key('player-error')), findsNothing);
+    await tester.pump(const Duration(seconds: 2));
+
+    expect(find.byKey(const Key('player-error')), findsOneWidget);
+    expect(find.text('La fuente no empezó a reproducirse.'), findsOneWidget);
+    expect(find.text('Reintentar'), findsOneWidget);
+    expect(find.text('Elegir otra fuente'), findsOneWidget);
+
+    fake.stallOnOpen = false;
+    await tester.tap(find.text('Reintentar'));
+    await pumpIo(tester, ticks: 6);
+    expect(fake.openCount, 2);
+    expect(find.byKey(const Key('player-error')), findsNothing);
+  });
+
+  testWidgets('un stream en vivo (sin duración) que avanza no se da por '
+      'caído', (tester) async {
+    final fake = engine()..stallOnOpen = true;
+    await openPlayer(tester, fake);
+    fake.tick(const Duration(seconds: 2));
+    await twice(tester);
+
+    await tester.pump(const Duration(seconds: 40));
+    expect(find.byKey(const Key('player-error')), findsNothing);
+  });
 }
+
+/// El ítem de un menú emergente que lleva [text].
+Finder _menuItem(String text) => find.ancestor(
+  of: find.text(text),
+  matching: find.byWidgetPredicate((w) => w is PopupMenuItem<Object>),
+);

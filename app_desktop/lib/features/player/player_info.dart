@@ -9,7 +9,6 @@ class PlayerInfo {
   const PlayerInfo({
     this.addonName,
     this.streamName,
-    this.atmos = false,
     this.imdbRating,
     this.year,
     this.runtime,
@@ -18,14 +17,16 @@ class PlayerInfo {
 
   final String? addonName;
   final String? streamName;
-
-  /// El título del stream dice Atmos.
-  final bool atmos;
   final String? imdbRating;
   final String? year;
   final String? runtime;
   final List<String> genres;
 }
+
+/// `true` si la pista de audio que suena dice Atmos en su título.
+bool isAtmosTrack(AudioTrack? track) =>
+    track?.title != null &&
+    RegExp(r'atmos', caseSensitive: false).hasMatch(track!.title!);
 
 /// «2.0», «5.1», «7.1»... según la cantidad de canales.
 String channelsLabel(int channels) => switch (channels) {
@@ -75,11 +76,18 @@ class InfoPanel extends StatelessWidget {
     required this.stats,
     required this.info,
     required this.onClose,
+    this.atmos = false,
   });
+
+  /// Ancho del panel.
+  static const double width = 340;
 
   final PlaybackStats stats;
   final PlayerInfo? info;
   final VoidCallback onClose;
+
+  /// La pista de audio que suena dice Atmos.
+  final bool atmos;
 
   @override
   Widget build(BuildContext context) {
@@ -89,6 +97,8 @@ class InfoPanel extends StatelessWidget {
     final width = s.videoWidth;
     final height = s.videoHeight;
     final channels = s.audioChannels;
+    final hasVideoData =
+        width != null || height != null || s.videoCodec != null;
     final rows = <(String, List<(String, String?)>)>[
       (
         'Video',
@@ -99,20 +109,25 @@ class InfoPanel extends StatelessWidget {
           ),
           ('FPS', s.fps == null ? null : _decimal(s.fps!, 2)),
           ('Códec', s.videoCodec),
+          // Sin datos del video todavía no se sabe si es SDR ni cómo decodifica.
           (
             'Rango dinámico',
-            switch (s.dynamicRange) {
-              DynamicRange.sdr => 'SDR',
-              DynamicRange.hdr10 => 'HDR10',
-              DynamicRange.hlg => 'HLG',
-              DynamicRange.dolbyVision => 'Dolby Vision',
-            },
+            !hasVideoData
+                ? null
+                : switch (s.dynamicRange) {
+                    DynamicRange.sdr => 'SDR',
+                    DynamicRange.hdr10 => 'HDR10',
+                    DynamicRange.hlg => 'HLG',
+                    DynamicRange.dolbyVision => 'Dolby Vision',
+                  },
           ),
           (
             'Decodificación',
-            s.hardwareDecoder == null
-                ? 'Software'
-                : 'Hardware (${s.hardwareDecoder})',
+            !hasVideoData
+                ? null
+                : (s.hardwareDecoder == null
+                      ? 'Software'
+                      : 'Hardware (${s.hardwareDecoder})'),
           ),
           (
             'Bitrate',
@@ -128,7 +143,7 @@ class InfoPanel extends StatelessWidget {
             'Canales',
             channels == null
                 ? null
-                : '${channelsLabel(channels)}${info?.atmos == true ? ' · Atmos' : ''}',
+                : '${channelsLabel(channels)}${atmos ? ' · Atmos' : ''}',
           ),
         ],
       ),
@@ -159,7 +174,7 @@ class InfoPanel extends StatelessWidget {
       color: Colors.black.withValues(alpha: 0.88),
       borderRadius: const BorderRadius.horizontal(left: Radius.circular(12)),
       child: SizedBox(
-        width: 340,
+        width: InfoPanel.width,
         child: Column(
           children: [
             Padding(

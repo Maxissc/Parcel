@@ -85,11 +85,11 @@ String? alignmentLabel(SubtitleAlignment? alignment) => switch (alignment) {
 /// lo que llega sin repetir lo que ya se bajó.
 class SubtitleCatalog extends ChangeNotifier {
   SubtitleCatalog({
-    SubtitleFetcher? fetcher,
+    this._fetcher,
     this.priority = SubtitleLanguage.defaultPriority,
     this.analyzePerLanguage = 8,
     this.concurrency = 4,
-  }) : _fetcher = fetcher;
+  });
 
   /// Con `null` no se baja nada: solo se ordenan y eligen las pistas del
   /// archivo.

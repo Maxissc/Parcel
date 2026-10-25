@@ -478,6 +478,33 @@ void main() {
     await leavePlayer(tester);
   });
 
+  testWidgets(
+    'la tarjeta del episodio siguiente y el panel de datos no se pisan',
+    (tester) async {
+      final fake = engine();
+      await openPlayer(
+        tester,
+        fake,
+        PlayerArgs(
+          url: 'http://media.example.com/video.mkv',
+          item: _episodeItem(2),
+        ),
+      );
+      tester.view.physicalSize = const Size(960, 600);
+      fake.tick(const Duration(minutes: 11));
+      await tester.pump();
+      await tester.pump();
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyI);
+      await tester.pump(const Duration(milliseconds: 100));
+
+      final card = tester.getRect(find.byKey(const Key('player-next-card')));
+      final panel = tester.getRect(find.byKey(const Key('player-info-panel')));
+      expect(card.overlaps(panel), isFalse);
+      expect(tester.takeException(), isNull);
+      await leavePlayer(tester);
+    },
+  );
+
   testWidgets('el título del reproductor y de la ventana lleva el episodio', (
     tester,
   ) async {

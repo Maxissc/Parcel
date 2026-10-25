@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:parcel_core/parcel_core.dart';
@@ -19,6 +20,8 @@ class SubtitleSyncOverlay extends StatefulWidget {
     required this.onMark,
     required this.onApply,
     required this.onClose,
+    required this.focusNode,
+    this.analyzing = false,
   });
 
   /// Los subtítulos externos ya bajados y analizados.
@@ -39,14 +42,23 @@ class SubtitleSyncOverlay extends StatefulWidget {
   final void Function(SyncMatch match) onApply;
   final VoidCallback onClose;
 
+  /// El foco del asistente: lo maneja el reproductor para devolvérselo después
+  /// de pantalla completa o de cerrar un menú.
+  final FocusNode focusNode;
+
+  /// Todavía se están bajando y analizando subtítulos.
+  final bool analyzing;
+
   @override
   State<SubtitleSyncOverlay> createState() => _SubtitleSyncOverlayState();
 }
 
 class _SubtitleSyncOverlayState extends State<SubtitleSyncOverlay> {
-  final FocusNode _focus = FocusNode(debugLabel: 'sync-overlay');
   bool _showDiscarded = false;
   int _selected = 0;
+
+  // El cálculo se rehace solo cuando cambian las marcas o los analizados.
+  SyncMatchResult? _cached;
 
   @override
   void initState() {
@@ -54,17 +66,32 @@ class _SubtitleSyncOverlayState extends State<SubtitleSyncOverlay> {
     // El reproductor ya tiene el foco: `autofocus` no alcanza, se lo pide
     // recién armado el cuadro.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _focus.requestFocus();
+      if (mounted) widget.focusNode.requestFocus();
     });
   }
 
   @override
-  void dispose() {
-    _focus.dispose();
-    super.dispose();
+  void didUpdateWidget(SubtitleSyncOverlay old) {
+    super.didUpdateWidget(old);
+    if (!listEquals(old.marks, widget.marks) ||
+        old.videoDuration != widget.videoDuration ||
+        !identical(old.priority, widget.priority) ||
+        !_sameCandidates(old.candidates, widget.candidates)) {
+      _cached = null;
+    }
   }
 
-  SyncMatchResult _result() => SubtitleSyncMatcher.match(
+  static bool _sameCandidates(List<SyncCandidate> a, List<SyncCandidate> b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i].subtitle != b[i].subtitle || !identical(a[i].cues, b[i].cues)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  SyncMatchResult _result() => _cached ??= SubtitleSyncMatcher.match(
     candidates: widget.candidates,
     marks: widget.marks,
     videoDuration: widget.videoDuration,
@@ -112,7 +139,7 @@ class _SubtitleSyncOverlayState extends State<SubtitleSyncOverlay> {
     final selected = rows.isEmpty ? 0 : _selected.clamp(0, rows.length - 1);
 
     return Focus(
-      focusNode: _focus,
+      focusNode: widget.focusNode,
       onKeyEvent: _onKey,
       child: Material(
         key: const Key('sync-overlay'),
@@ -168,9 +195,11 @@ class _SubtitleSyncOverlayState extends State<SubtitleSyncOverlay> {
                 if (marks.isNotEmpty) ...[
                   const SizedBox(height: Spacing.sm),
                   Text(
-                    keptCount == 1
-                        ? 'Queda 1 subtítulo que coincide'
-                        : 'Quedan $keptCount subtítulos que coinciden',
+                    widget.analyzing
+                        ? 'Analizando subtítulos…'
+                        : (keptCount == 1
+                              ? 'Queda 1 subtítulo que coincide'
+                              : 'Quedan $keptCount subtítulos que coinciden'),
                     key: const Key('sync-remaining'),
                     style: theme.textTheme.titleSmall,
                   ),
@@ -196,7 +225,6 @@ class _SubtitleSyncOverlayState extends State<SubtitleSyncOverlay> {
                           key: Key('sync-row-${match.subtitle.id}'),
                           dense: true,
                           selected: i == selected,
-                          enabled: true,
                           title: Text(
                             widget.labelOf(match.subtitle),
                             maxLines: 1,

@@ -16,6 +16,13 @@ import 'subtitle_delay.dart';
 import 'subtitle_sync_overlay.dart';
 import 'track_preferences.dart';
 
+/// `true` si la fuente ya arrancó: la posición avanzó al menos medio segundo
+/// desde [from] (también un stream en vivo, sin duración), o hay duración y
+/// ya no está cargando.
+bool playbackStarted(PlaybackState s, {Duration from = Duration.zero}) =>
+    s.position - from >= const Duration(milliseconds: 500) ||
+    (s.duration > Duration.zero && !s.buffering);
+
 /// El episodio que sigue, para ofrecerlo al terminar el actual.
 class NextEpisode {
   const NextEpisode({required this.label, required this.onOpen});
@@ -48,6 +55,7 @@ class PlayerScreen extends StatefulWidget {
     this.sourceMenu,
     this.onOpenFailed,
     this.openTimeout = const Duration(seconds: 20),
+    this.manualOpenTimeout = const Duration(seconds: 30),
     this.initialSubtitleDelay = Duration.zero,
     this.onSubtitleDelayChanged,
     this.onDecision,
@@ -99,6 +107,10 @@ class PlayerScreen extends StatefulWidget {
   final VoidCallback? onOpenFailed;
   final Duration openTimeout;
 
+  /// Sin [onOpenFailed] (fuente elegida a mano), a los [manualOpenTimeout] sin
+  /// arrancar se muestra el error con Â«ReintentarÂ» y Â«Elegir otra fuenteÂ».
+  final Duration manualOpenTimeout;
+
   /// Retraso de subtítulos con el que arranca (el que el usuario ya fijó para
   /// este contenido) y aviso cada vez que cambia.
   final Duration initialSubtitleDelay;
@@ -133,6 +145,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
   static const _subtitleDelay = Duration(seconds: 2);
 
   final FocusNode _focus = FocusNode(debugLabel: 'player');
+
+  /// El foco del asistente de sincronización, mientras está abierto.
+  final FocusNode _syncFocus = FocusNode(debugLabel: 'sync-overlay');
   late final SubtitleCatalog _catalog;
   Timer? _hideTimer;
   Timer? _osdTimer;
@@ -152,10 +167,24 @@ class _PlayerScreenState extends State<PlayerScreen> {
   bool _userPickedSubtitle = false;
   bool _started = false;
   bool _failedOver = false;
+  bool _stalled = false;
+
+  /// Ya arrancó la elección automática de subtítulos (pasa una vez por
+  /// contenido, no por intento).
+  bool _autoStarted = false;
   bool _infoOpen = false;
   bool _syncOpen = false;
+
+  /// `true` cuando llegaron (o no hay) los subtítulos de los addons.
+  bool _lateLoaded = false;
+
+  /// Dónde estaba el video al abrir: «arrancó» se mide desde ahí.
+  Duration _openedAt = Duration.zero;
   final List<Duration> _syncMarks = [];
   final Map<String, SubtitleTrack> _loadedExternal = {};
+
+  /// Retraso de cada pista que el usuario cambió, por clave de pista.
+  final Map<String, Duration> _trackDelays = {};
   late Duration _delay = widget.initialSubtitleDelay;
   double? _dragValue;
   double _volumeBeforeMute = 0.5;
@@ -167,6 +196,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   void initState() {
     super.initState();
     _catalog = widget.catalog ?? SubtitleCatalog();
+    _lateLoaded = widget.lateSubtitles == null;
     _catalog.addListener(_onCatalogChanged);
     _scheduleHide();
     _stats = _engine.stats;
@@ -197,6 +227,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _catalog.removeListener(_onCatalogChanged);
     if (widget.catalog == null) _catalog.dispose();
     _focus.dispose();
+    _syncFocus.dispose();
     if (widget.disposeEngine) unawaited(_engine.dispose());
     super.dispose();
   }
@@ -205,15 +236,37 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if (mounted) setState(() {});
   }
 
-  void _decide(String message) => widget.onDecision?.call(message);
+  void _decide(String message) =>
+      widget.onDecision?.call(redactUrlsInText(message));
 
-  Future<void> _start(PlaybackSource source) async {
+  /// Abre [source]. Con [retry] es una reapertura de la misma fuente (botón
+  /// «Reintentar»): se vuelve a cargar el subtítulo externo que estaba
+  /// elegido ([restore]) en vez de repetir la elección automática y el
+  /// análisis, que son del contenido y no del intento.
+  Future<void> _start(
+    PlaybackSource source, {
+    bool retry = false,
+    SubtitleEntry? restore,
+  }) async {
     _started = false;
+    _stalled = false;
+    _openedAt = source.startPosition;
+    _loadedExternal.clear();
     _openTimer?.cancel();
     if (widget.onOpenFailed != null) {
       _openTimer = Timer(widget.openTimeout, () {
         if (!_started) {
           _failOver('no arrancó en ${widget.openTimeout.inSeconds} s');
+        }
+      });
+    } else {
+      _openTimer = Timer(widget.manualOpenTimeout, () {
+        if (!_started && mounted) {
+          _decide(
+            'la fuente elegida no arrancó en '
+            '${widget.manualOpenTimeout.inSeconds} s',
+          );
+          setState(() => _stalled = true);
         }
       });
     }
@@ -229,8 +282,16 @@ class _PlayerScreenState extends State<PlayerScreen> {
       );
     }
     await _applyPreferences();
+    if (retry) {
+      if (restore != null && mounted) await _selectEntry(restore);
+      return;
+    }
     await _chooseAutomaticSubtitle();
   }
+
+  /// Dónde dejar el foco del teclado: el asistente de sincronización si está
+  /// abierto, y si no el reproductor.
+  void _refocus() => (_syncOpen ? _syncFocus : _focus).requestFocus();
 
   /// La fuente no anduvo: se avisa una sola vez a quien eligió la fuente.
   void _failOver(String reason) {
@@ -328,12 +389,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
   /// Cuando llegan y se analizan los subtítulos de los addons, elige el mejor
   /// del idioma preferido (si el usuario todavía no eligió uno).
   Future<void> _chooseAutomaticSubtitle() async {
+    _autoStarted = true;
     final late = widget.lateSubtitles;
     if (late != null) {
       final subtitles = await late;
       if (!mounted) return;
       _catalog.setExternal(subtitles);
     }
+    _lateLoaded = true;
     if (_catalog.externals.isEmpty) {
       await _maybeRunSyncTaps();
       return;
@@ -416,11 +479,41 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if (_delay != Duration.zero) await _engine.setSubtitleDelay(_delay);
   }
 
+  /// Clave de la pista de subtítulos que suena ahora (para recordar su
+  /// retraso), o `null` si no hay ninguna.
+  String? _selectedSubtitleKey() {
+    final selected = _engine.state.selectedSubtitle;
+    if (selected == null) return null;
+    if (!selected.isExternal) return 'emb:${selected.id}';
+    for (final e in _loadedExternal.entries) {
+      if (e.value == selected) return e.key;
+    }
+    return 'trk:${selected.id}';
+  }
+
+  /// El usuario cambió de subtítulo con [change] a la pista [nextKey] (`null`
+  /// si los apaga): el retraso del que dejó queda guardado con él y el nuevo
+  /// arranca con el suyo (o en cero). El retraso es de cada subtítulo.
+  Future<void> _changeSubtitle(
+    String? nextKey,
+    Future<void> Function() change,
+  ) async {
+    _userPickedSubtitle = true;
+    final previous = _selectedSubtitleKey();
+    if (previous != null) _trackDelays[previous] = _delay;
+    await change();
+    if (!mounted || nextKey == null || nextKey == previous) return;
+    final delay = _trackDelays[nextKey] ?? Duration.zero;
+    if (delay != _delay) _setDelay(delay);
+  }
+
   SubtitleMenuData? _subtitleMenu(PlaybackState state) {
     if (widget.catalog == null && widget.lateSubtitles == null) return null;
-    final embedded = state.subtitleTracks.where((t) => !t.isExternal).toList();
     return SubtitleMenuData(
-      entries: _catalog.menuEntries(embedded),
+      // Las entradas se arman al abrir el menú, no en cada cuadro.
+      entries: () => _catalog.menuEntries(
+        state.subtitleTracks.where((t) => !t.isExternal).toList(),
+      ),
       alignmentOf: _catalog.alignmentOf,
       isSelected: (entry) {
         final selected = state.selectedSubtitle;
@@ -441,7 +534,23 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if (osd) _showOsd('Subtítulos ${formatDelay(delay)}');
   }
 
+  bool get _syncAvailable => _catalog.externals.isNotEmpty;
+
+  /// S (o el menú): abre el asistente. Si ya está abierto no borra las marcas,
+  /// solo le devuelve el foco. Sin subtítulos de addons avisa en vez de abrir.
   void _openSync() {
+    if (_syncOpen) {
+      _refocus();
+      return;
+    }
+    if (!_syncAvailable) {
+      _showOsd(
+        _lateLoaded
+            ? 'No hay subtítulos de addons para sincronizar'
+            : 'Buscando subtítulos de addons…',
+      );
+      return;
+    }
     setState(() {
       _syncOpen = true;
       _syncMarks.clear();
@@ -459,11 +568,19 @@ class _PlayerScreenState extends State<PlayerScreen> {
     setState(() => _syncMarks.add(_engine.state.position));
   }
 
+  /// I (o el botón): el panel de datos y el asistente no van juntos.
+  void _toggleInfo() {
+    setState(() {
+      _infoOpen = !_infoOpen;
+      if (_infoOpen) _syncOpen = false;
+    });
+    _refocus();
+  }
+
   Future<void> _applyMatch(SyncMatch match) async {
     final entry = _catalog.entryFor(match.subtitle);
     if (entry != null) {
-      _userPickedSubtitle = true;
-      await _selectEntry(entry);
+      await _changeSubtitle(entry.id, () => _selectEntry(entry));
     }
     if (!mounted) return;
     _setDelay(match.suggestedDelay ?? Duration.zero);
@@ -495,9 +612,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
   // --- Progreso ----------------------------------------------------------------
 
   void _onEngineState(PlaybackState s) {
-    if (!_started && s.duration > Duration.zero && !s.buffering) {
+    if (!_started && playbackStarted(s, from: _openedAt)) {
       _started = true;
       _openTimer?.cancel();
+      if (_stalled && mounted) setState(() => _stalled = false);
     }
     if (!_started && s.error != null) _failOver('error al abrir');
     final paused = _wasPlaying && !s.playing;
@@ -534,13 +652,17 @@ class _PlayerScreenState extends State<PlayerScreen> {
     await window.setFullScreen(next);
     if (mounted) setState(() => _fullScreen = next);
     // Al cambiar de modo la ventana puede quedarse con el foco: se recupera
-    // para que el teclado siga andando.
-    if (mounted) _focus.requestFocus();
+    // para que el teclado siga andando (en el asistente, si está abierto).
+    if (mounted) _refocus();
   }
 
-  /// Esc: cierra el panel de datos; si no, sale de pantalla completa; si no,
-  /// vuelve.
+  /// Esc: cierra el asistente de sincronización o el panel de datos; si no,
+  /// sale de pantalla completa; si no, vuelve.
   Future<void> _escape() async {
+    if (_syncOpen) {
+      _closeSync();
+      return;
+    }
     if (_infoOpen) {
       setState(() => _infoOpen = false);
       return;
@@ -550,7 +672,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       await window.setFullScreen(false);
       if (mounted) {
         setState(() => _fullScreen = false);
-        _focus.requestFocus();
+        _refocus();
       }
       return;
     }
@@ -583,8 +705,45 @@ class _PlayerScreenState extends State<PlayerScreen> {
             startPosition: position,
           )
         : widget.source;
-    unawaited(_start(source));
+    // Las pistas externas se pierden al reabrir: si había una elegida se
+    // vuelve a cargar, sin tocar el catálogo ni rehacer su análisis.
+    SubtitleEntry? restore;
+    final selected = _engine.state.selectedSubtitle;
+    if (selected != null && selected.isExternal) {
+      final id = _selectedSubtitleKey();
+      for (final e in _catalog.externals) {
+        if (e.id == id) restore = e;
+      }
+    }
+    unawaited(_start(source, retry: _autoStarted, restore: restore));
     _poke();
+  }
+
+  /// Elegir otra fuente cuando la actual no arranca: con el menú «Fuente» se
+  /// elige ahí mismo; si no hay, se vuelve a la lista.
+  Future<void> _chooseOtherSource() async {
+    final menu = widget.sourceMenu;
+    if (menu == null || menu.candidates.length < 2) {
+      _back();
+      return;
+    }
+    final index = await showDialog<int>(
+      context: context,
+      builder: (context) => SimpleDialog(
+        title: const Text('Elegir otra fuente'),
+        children: [
+          for (var i = 0; i < menu.candidates.length; i++)
+            if (i != menu.current)
+              SimpleDialogOption(
+                onPressed: () => Navigator.of(context).pop(i),
+                child: Text(menu.candidates[i].label),
+              ),
+        ],
+      ),
+    );
+    if (index != null && mounted) {
+      menu.onPick(index, _engine.state.position);
+    }
   }
 
   // --- Controles que se ocultan ---------------------------------------------
@@ -619,7 +778,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   void _menuClosed() {
     _menuOpen = false;
-    _focus.requestFocus();
+    _refocus();
     _poke();
   }
 
@@ -672,9 +831,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
     } else if (key == LogicalKeyboardKey.keyF && !isRepeat) {
       unawaited(_toggleFullScreen());
     } else if (key == LogicalKeyboardKey.keyI && !isRepeat) {
-      setState(() => _infoOpen = !_infoOpen);
+      _toggleInfo();
     } else if (key == LogicalKeyboardKey.keyS && !isRepeat) {
-      _openSync();
+      // Con el asistente abierto S marca; nunca lo reabre ni borra las marcas.
+      if (_syncOpen) {
+        _addMark();
+      } else {
+        _openSync();
+      }
     } else if (key == LogicalKeyboardKey.keyG) {
       _setDelay(_delay - subtitleDelayStep);
     } else if (key == LogicalKeyboardKey.keyH) {
@@ -738,7 +902,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
     // Con quien prueba otras fuentes, un error antes de arrancar no muestra la
     // pantalla de error: se está cambiando de fuente.
     final switching = widget.onOpenFailed != null && !_started;
-    final hasError = state.error != null && !switching;
+    final hasError = (state.error != null && !switching) || _stalled;
+    final atmos = isAtmosTrack(state.selectedAudio);
     final loading =
         !hasError &&
         (state.buffering || state.duration <= Duration.zero || switching);
@@ -816,19 +981,22 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   _userPickedAudio = true;
                   unawaited(_engine.setAudioTrack(t));
                 },
-                onSelectSubtitle: (t) {
-                  _userPickedSubtitle = true;
-                  unawaited(_engine.setSubtitleTrack(t));
-                },
+                onSelectSubtitle: (t) => unawaited(
+                  _changeSubtitle(
+                    t == null
+                        ? null
+                        : (t.isExternal ? 'trk:${t.id}' : 'emb:${t.id}'),
+                    () => _engine.setSubtitleTrack(t),
+                  ),
+                ),
                 subtitles: _subtitleMenu(state),
-                onSelectSubtitleEntry: (entry) {
-                  _userPickedSubtitle = true;
-                  unawaited(_selectEntry(entry));
-                },
-                onOpenSync: _catalog.externals.isEmpty ? null : _openSync,
+                onSelectSubtitleEntry: (entry) => unawaited(
+                  _changeSubtitle(entry.id, () => _selectEntry(entry)),
+                ),
+                onOpenSync: _syncAvailable ? _openSync : null,
                 sourceMenu: widget.sourceMenu,
-                atmos: widget.info?.atmos ?? false,
-                onToggleInfo: () => setState(() => _infoOpen = !_infoOpen),
+                atmos: atmos,
+                onToggleInfo: _toggleInfo,
                 onMenuOpened: _menuOpened,
                 onMenuClosed: _menuClosed,
                 isFullScreen: _fullScreen,
@@ -846,7 +1014,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
               child: InfoPanel(
                 stats: _stats,
                 info: widget.info,
-                onClose: () => setState(() => _infoOpen = false),
+                atmos: atmos,
+                onClose: () {
+                  setState(() => _infoOpen = false);
+                  _refocus();
+                },
               ),
             ),
           if (_syncOpen)
@@ -863,12 +1035,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   onMark: _addMark,
                   onApply: (m) => unawaited(_applyMatch(m)),
                   onClose: _closeSync,
+                  focusNode: _syncFocus,
+                  analyzing: _catalog.analyzing,
                 ),
               ),
             ),
           if (state.completed && widget.next != null && !_nextDismissed)
             Positioned(
-              right: Spacing.lg,
+              // Con el panel de datos abierto la tarjeta se corre para no pisarlo.
+              right: _infoOpen ? InfoPanel.width + Spacing.md : Spacing.lg,
               bottom: 128,
               child: _NextEpisodeCard(
                 next: widget.next!,
@@ -877,9 +1052,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
             ),
           if (hasError)
             _ErrorOverlay(
-              message: redactUrlsInText(state.error!),
+              message: _stalled && state.error == null
+                  ? 'La fuente no empezó a reproducirse.'
+                  : redactUrlsInText(state.error ?? ''),
               onRetry: _retry,
               onBack: _back,
+              onChooseSource: _chooseOtherSource,
             ),
         ],
       ),
@@ -958,11 +1136,13 @@ class _ErrorOverlay extends StatelessWidget {
     required this.message,
     required this.onRetry,
     required this.onBack,
+    required this.onChooseSource,
   });
 
   final String message;
   final VoidCallback onRetry;
   final VoidCallback onBack;
+  final VoidCallback onChooseSource;
 
   @override
   Widget build(BuildContext context) {
@@ -990,15 +1170,22 @@ class _ErrorOverlay extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
               ),
               const SizedBox(height: 24),
-              Row(
-                mainAxisSize: MainAxisSize.min,
+              Wrap(
+                alignment: WrapAlignment.center,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: 12,
+                runSpacing: 8,
                 children: [
                   FilledButton.icon(
                     onPressed: onRetry,
                     icon: const Icon(Icons.refresh),
                     label: const Text('Reintentar'),
                   ),
-                  const SizedBox(width: 12),
+                  OutlinedButton(
+                    key: const Key('player-choose-source'),
+                    onPressed: onChooseSource,
+                    child: const Text('Elegir otra fuente'),
+                  ),
                   TextButton(onPressed: onBack, child: const Text('Volver')),
                 ],
               ),
