@@ -8,6 +8,7 @@ import '../../app/back_navigation.dart';
 import '../../app/theme.dart';
 import '../../data/platform.dart';
 import '../../playback/playback_errors.dart';
+import '../../playback/subtitle_position.dart';
 import '../../playback/video_surface.dart';
 import 'player_controls.dart';
 import 'player_info.dart';
@@ -171,6 +172,10 @@ class _PlayerScreenState extends State<PlayerScreen>
   Timer? _progressTimer;
   Timer? _tapTimer;
   Timer? _openTimer;
+  Timer? _liftTimer;
+
+  /// Cuánto están subidos los subtítulos ahora (fracción del alto).
+  double _liftNow = 0;
   StreamSubscription<PlaybackState>? _stateSub;
   StreamSubscription<PlaybackStats>? _statsSub;
   PlaybackStats _stats = PlaybackStats.empty;
@@ -267,6 +272,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     _progressTimer?.cancel();
     _tapTimer?.cancel();
     _openTimer?.cancel();
+    _liftTimer?.cancel();
     _countdownTimer?.cancel();
     unawaited(_stateSub?.cancel());
     unawaited(_statsSub?.cancel());
@@ -281,6 +287,12 @@ class _PlayerScreenState extends State<PlayerScreen>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     _appActive = state == AppLifecycleState.resumed;
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _applyLift();
   }
 
   @override
@@ -955,12 +967,53 @@ class _PlayerScreenState extends State<PlayerScreen>
       if (!mounted || _menuOpen || _dragValue != null) return;
       if (_engine.state.error != null) return;
       setState(() => _controlsVisible = false);
+      _applyLift();
+    });
+  }
+
+  /// Alto, en píxeles, que sube el subtítulo mientras se ven los controles:
+  /// lo justo para quedar arriba de la barra de progreso.
+  static const double subtitleLiftPixels = 88;
+
+  /// Sube el subtítulo si los controles están a la vista y lo baja si no, con
+  /// un cambio suave (salvo con las animaciones apagadas).
+  void _applyLift() {
+    final engine = _engine;
+    if (engine is! SubtitleLiftable) return;
+    final lifter = engine as SubtitleLiftable;
+    final height = MediaQuery.sizeOf(context).height;
+    if (height <= 0) return;
+    final target = _controlsVisible ? subtitleLiftPixels / height : 0.0;
+    _liftTimer?.cancel();
+    if (MediaQuery.disableAnimationsOf(context)) {
+      if (target != _liftNow) {
+        _liftNow = target;
+        unawaited(lifter.setSubtitleLift(target));
+      }
+      return;
+    }
+    final from = _liftNow;
+    if (target == from) return;
+    const steps = 10;
+    var step = 0;
+    _liftTimer = Timer.periodic(const Duration(milliseconds: 20), (timer) {
+      step++;
+      final done = step >= steps;
+      _liftNow = done
+          ? target
+          : from +
+                (target - from) * Curves.easeOutCubic.transform(step / steps);
+      unawaited(lifter.setSubtitleLift(_liftNow));
+      if (done) timer.cancel();
     });
   }
 
   /// Muestra los controles y reinicia la cuenta para ocultarlos.
   void _poke() {
-    if (!_controlsVisible) setState(() => _controlsVisible = true);
+    if (!_controlsVisible) {
+      setState(() => _controlsVisible = true);
+      _applyLift();
+    }
     _scheduleHide();
   }
 

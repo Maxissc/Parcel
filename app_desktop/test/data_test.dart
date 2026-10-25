@@ -115,15 +115,18 @@ void main() {
       },
     );
 
-    test('migración: la versión 3 pasa a abrir sin pantalla completa', () async {
-      final path = '${dir.path}/settings.json';
-      File(path).writeAsStringSync(
-        '{"version":3,"openFullScreen":true,"audioLanguage":"eng"}',
-      );
-      final store = await SettingsStore.open(path);
-      expect(store.value.openFullScreen, isFalse);
-      expect(store.value.audioLanguage, 'eng');
-    });
+    test(
+      'migración: la versión 3 pasa a abrir sin pantalla completa',
+      () async {
+        final path = '${dir.path}/settings.json';
+        File(path).writeAsStringSync(
+          '{"version":3,"openFullScreen":true,"audioLanguage":"eng"}',
+        );
+        final store = await SettingsStore.open(path);
+        expect(store.value.openFullScreen, isFalse);
+        expect(store.value.audioLanguage, 'eng');
+      },
+    );
 
     test(
       'migración: un archivo sin versión tampoco abre en pantalla completa',

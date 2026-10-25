@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:parcel_core/parcel_core.dart';
 import 'package:parcel_desktop/data/platform.dart';
 import 'package:parcel_desktop/features/player/player_screen.dart';
+import 'package:parcel_desktop/playback/subtitle_position.dart';
 
 import 'support/fakes.dart';
 
@@ -241,6 +242,56 @@ void main() {
     await tester.pump(const Duration(seconds: 4));
   });
 
+  testWidgets('el subtítulo sube con los controles y vuelve al ocultarse', (
+    tester,
+  ) async {
+    final engine = _LiftEngine();
+    await _pump(tester, engine);
+    await tester.pump(const Duration(milliseconds: 400));
+    // Con los controles a la vista queda arriba de la barra: unos 88 px de
+    // los 600 de alto.
+    expect(engine.lift, closeTo(88 / 600, 0.01));
+
+    await tester.pump(const Duration(seconds: 4));
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(_controlsOpacity(tester), 0);
+    expect(engine.lift, 0);
+    // Cambia de a poco, no de golpe.
+    expect(engine.lifts.where((l) => l > 0 && l < 88 / 600 - 0.01), isNotEmpty);
+
+    final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    await mouse.addPointer(location: const Offset(10, 10));
+    await mouse.moveTo(const Offset(40, 40));
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(engine.lift, closeTo(88 / 600, 0.01));
+    await mouse.removePointer();
+    await tester.pump(const Duration(seconds: 4));
+  });
+
+  testWidgets('con las animaciones apagadas el subtítulo cambia de golpe', (
+    tester,
+  ) async {
+    final engine = _LiftEngine();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MediaQuery(
+          data: const MediaQueryData(
+            size: Size(800, 600),
+            disableAnimations: true,
+          ),
+          child: PlayerScreen(
+            engine: engine,
+            source: PlaybackSource(url: 'http://x/video.mkv'),
+          ),
+        ),
+      ),
+    );
+    await tester.pump(const Duration(seconds: 4));
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(engine.lifts, [88 / 600, 0]);
+  });
+
   testWidgets('atajos: espacio, flechas y volumen', (tester) async {
     final engine = _engine();
     await _pump(tester, engine);
@@ -299,4 +350,17 @@ void main() {
     // El motor se liberó: su stream quedó cerrado.
     expect(engine.stream, emitsDone);
   });
+}
+
+/// Motor falso que además guarda cuánto se subieron los subtítulos.
+class _LiftEngine extends FakePlaybackEngine implements SubtitleLiftable {
+  _LiftEngine() : super(mediaDuration: const Duration(minutes: 2));
+
+  /// Cada valor que se pidió, en orden.
+  final List<double> lifts = [];
+
+  double get lift => lifts.isEmpty ? 0 : lifts.last;
+
+  @override
+  Future<void> setSubtitleLift(double lift) async => lifts.add(lift);
 }
