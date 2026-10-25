@@ -46,40 +46,45 @@ class RowHeader extends StatelessWidget {
         child: titleText,
       );
     }
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: Spacing.lg),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.baseline,
-        textBaseline: TextBaseline.alphabetic,
-        children: [
-          Flexible(child: Semantics(header: true, child: titleText)),
-          if (subtitle != null) ...[
-            const SizedBox(width: Spacing.sm),
-            Flexible(
-              child: Text(
-                subtitle!,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
+    final labels = Row(
+      crossAxisAlignment: CrossAxisAlignment.baseline,
+      textBaseline: TextBaseline.alphabetic,
+      children: [
+        Flexible(child: Semantics(header: true, child: titleText)),
+        if (subtitle != null) ...[
+          const SizedBox(width: Spacing.sm),
+          Flexible(
+            child: Text(
+              subtitle!,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
               ),
             ),
-          ],
-          if (trailing != null) ...[
-            const SizedBox(width: Spacing.sm),
-            trailing!,
-          ],
-          if (onSeeAll != null) ...[
-            const Spacer(),
-            TextButton(
-              key: const Key('row-see-all'),
-              onPressed: onSeeAll,
-              child: const Text('Ver todo ›'),
-            ),
-          ],
+          ),
         ],
-      ),
+        if (trailing != null) ...[const SizedBox(width: Spacing.sm), trailing!],
+      ],
+    );
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: Spacing.lg),
+      child: onSeeAll == null
+          ? labels
+          : Row(
+              children: [
+                // El título y el addon a la izquierda; «Ver todo ›» pegado al
+                // borde derecho.
+                Expanded(
+                  child: Align(alignment: Alignment.centerLeft, child: labels),
+                ),
+                TextButton(
+                  key: const Key('row-see-all'),
+                  onPressed: onSeeAll,
+                  child: const Text('Ver todo ›'),
+                ),
+              ],
+            ),
     );
   }
 }

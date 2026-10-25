@@ -16,6 +16,7 @@ class RemoteImage extends StatelessWidget {
     this.fit = BoxFit.cover,
     this.alignment = Alignment.center,
     this.placeholderIcon = Icons.movie_outlined,
+    this.showPlaceholder = true,
   });
 
   final String? url;
@@ -23,6 +24,10 @@ class RemoteImage extends StatelessWidget {
   final BoxFit fit;
   final AlignmentGeometry alignment;
   final IconData placeholderIcon;
+
+  /// Con `false` no dibuja el fondo gris ni el ícono mientras carga ni si falla
+  /// (para logos con transparencia, que se verían sobre una caja gris).
+  final bool showPlaceholder;
 
   @override
   Widget build(BuildContext context) {
@@ -38,6 +43,17 @@ class RemoteImage extends StatelessWidget {
       ),
     );
     final source = url;
+    if (!showPlaceholder) {
+      if (source == null || !isHttpUrl(source)) return const SizedBox.shrink();
+      return Image.network(
+        source,
+        fit: fit,
+        alignment: alignment,
+        cacheWidth: (width * MediaQuery.devicePixelRatioOf(context)).round(),
+        excludeFromSemantics: true,
+        errorBuilder: (context, error, stackTrace) => const SizedBox.shrink(),
+      );
+    }
     if (source == null || !isHttpUrl(source)) {
       return placeholder(placeholderIcon);
     }

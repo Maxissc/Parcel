@@ -304,6 +304,7 @@ class _Slide extends ConsumerWidget {
                       child: RemoteImage(
                         meta.logo,
                         width: 260,
+                        showPlaceholder: false,
                         fit: BoxFit.contain,
                         alignment: Alignment.centerLeft,
                       ),
