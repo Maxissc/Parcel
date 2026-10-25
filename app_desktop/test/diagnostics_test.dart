@@ -17,7 +17,7 @@ void main() {
   late Directory dir;
 
   setUp(() => dir = makeTempDir());
-  tearDown(() => dir.deleteSync(recursive: true));
+  tearDown(() => deleteTempDir(dir));
 
   test(
     'PARCEL_DIAG_PASTE llega a la configuración (solo con PARCEL_DIAG=1)',

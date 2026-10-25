@@ -15,6 +15,23 @@ import 'test_env.dart';
 /// Espera a que `addons.json` en [dir] cumpla [matcher] (hasta [timeout] de
 /// tiempo real) y recién después lo verifica. Con un número fijo de ticks, un
 /// disco lento (el runner de CI) hacía fallar la verificación.
+/// Deja correr el disco de verdad hasta que [condition] se cumpla (o pase
+/// [timeout] de tiempo real). No verifica nada: lo hace el `expect` siguiente.
+Future<void> pumpIoUntil(
+  WidgetTester tester,
+  bool Function() condition, {
+  Duration timeout = const Duration(seconds: 5),
+}) async {
+  final deadline = DateTime.now().add(timeout);
+  while (!condition() && DateTime.now().isBefore(deadline)) {
+    await tester.pump(const Duration(milliseconds: 50));
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 20)),
+    );
+  }
+  await tester.pump();
+}
+
 Future<void> expectSavedAddons(
   WidgetTester tester,
   Directory dir,

@@ -71,6 +71,20 @@ MockClient mockWorld(
 /// Carpeta temporal para los datos de un test.
 Directory makeTempDir() => Directory.systemTemp.createTempSync('parcel_test_');
 
+/// Borra la carpeta temporal de una prueba. En Windows una escritura que
+/// todavía termina (o el antivirus del runner) puede tenerla tomada un rato:
+/// reintenta y, si igual no puede, la deja (es limpieza, no parte del test).
+Future<void> deleteTempDir(Directory dir) async {
+  for (var i = 0; i < 20; i++) {
+    try {
+      if (dir.existsSync()) dir.deleteSync(recursive: true);
+      return;
+    } on FileSystemException {
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    }
+  }
+}
+
 /// Prober que da por buenos los videos de `media.example.com` (de 50 MB) y
 /// rechaza con 404 todo lo demás. [broken] lista paths que responden 404.
 StreamProber fakeProber({Set<String> broken = const {}}) => StreamProber(

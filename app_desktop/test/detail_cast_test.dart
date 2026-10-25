@@ -48,7 +48,7 @@ void main() {
     world = CatalogWorld();
     world.routes[_matrixMeta] = {'meta': _richMeta()};
   });
-  tearDown(() => dir.deleteSync(recursive: true));
+  tearDown(() => deleteTempDir(dir));
 
   Future<void> openDetail(
     WidgetTester tester, {

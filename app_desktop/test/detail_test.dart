@@ -48,7 +48,7 @@ void main() {
       ],
     };
   });
-  tearDown(() => dir.deleteSync(recursive: true));
+  tearDown(() => deleteTempDir(dir));
 
   Future<void> openDetail(
     WidgetTester tester,

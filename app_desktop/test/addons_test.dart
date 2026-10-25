@@ -48,7 +48,7 @@ void main() {
   late Directory dir;
 
   setUp(() => dir = makeTempDir());
-  tearDown(() => dir.deleteSync(recursive: true));
+  tearDown(() => deleteTempDir(dir));
 
   testWidgets('sin addons muestra el estado vacío con las dos acciones', (
     tester,
@@ -111,7 +111,7 @@ void main() {
     await _tap(tester, find.byKey(const Key('menu-OpenSubtitles v3')));
     await _tap(tester, find.text('Quitar'));
     await _tap(tester, find.widgetWithText(FilledButton, 'Quitar'));
-    await pumpIo(tester);
+    await pumpUntil(tester, find.text('Quitaste OpenSubtitles v3.'));
 
     expect(find.text('Quitaste OpenSubtitles v3.'), findsOneWidget);
     await expectSavedAddons(tester, dir, ['Cinemeta', 'Torrent']);

@@ -14,7 +14,7 @@ void main() {
   late Directory dir;
 
   setUp(() => dir = makeTempDir());
-  tearDown(() => dir.deleteSync(recursive: true));
+  tearDown(() => deleteTempDir(dir));
 
   group('resolveDataDirectory', () {
     final support = Directory('C:/soporte');

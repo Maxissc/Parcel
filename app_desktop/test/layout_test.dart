@@ -15,7 +15,7 @@ void main() {
   late Directory dir;
 
   setUp(() => dir = makeTempDir());
-  tearDown(() => dir.deleteSync(recursive: true));
+  tearDown(() => deleteTempDir(dir));
 
   Future<void> shrink(WidgetTester tester) async {
     tester.view.physicalSize = _minimum;

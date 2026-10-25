@@ -73,7 +73,7 @@ void main() {
     world = CatalogWorld();
     window = FakeWindowService();
   });
-  tearDown(() => dir.deleteSync(recursive: true));
+  tearDown(() => deleteTempDir(dir));
 
   FakePlaybackEngine engine({
     List<AudioTrack> audio = const [AudioTrack(id: '1', language: 'eng')],

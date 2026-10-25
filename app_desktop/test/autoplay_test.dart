@@ -36,7 +36,7 @@ void main() {
     world = CatalogWorld();
     diagLines = [];
   });
-  tearDown(() => dir.deleteSync(recursive: true));
+  tearDown(() => deleteTempDir(dir));
 
   Meta matrix() => Meta.fromJson(movieMeta('tt0133093', 'The Matrix'));
 

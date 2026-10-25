@@ -48,7 +48,7 @@ void main() {
     dir = makeTempDir();
     world = CatalogWorld();
   });
-  tearDown(() => dir.deleteSync(recursive: true));
+  tearDown(() => deleteTempDir(dir));
 
   Future<void> openHome(
     WidgetTester tester, {

@@ -74,7 +74,7 @@ void main() {
     world.routes['subs.example.com/la.srt'] = srt(595);
     world.routes['subs.example.com/es.srt'] = srt(300, offset: 8);
   });
-  tearDown(() => dir.deleteSync(recursive: true));
+  tearDown(() => deleteTempDir(dir));
 
   Meta meta({String? originalLanguage}) => Meta(
     id: _matrixId,

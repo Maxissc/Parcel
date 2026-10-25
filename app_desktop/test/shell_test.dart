@@ -23,7 +23,7 @@ void main() {
   late Directory dir;
 
   setUp(() => dir = makeTempDir());
-  tearDown(() => dir.deleteSync(recursive: true));
+  tearDown(() => deleteTempDir(dir));
 
   test('la versión que se muestra es la de pubspec.yaml', () {
     final pubspec = File('pubspec.yaml').readAsStringSync();
@@ -248,9 +248,15 @@ void main() {
       await tester.tap(find.byKey(const Key('subtitle-language')));
       await tester.pump(const Duration(milliseconds: 300));
       await tester.tap(find.text('Español').last);
-      await pumpIo(tester);
+      final file = File('${dir.path}/settings.json');
+      await pumpIoUntil(
+        tester,
+        () =>
+            file.existsSync() &&
+            file.readAsStringSync().contains('"subtitleLanguage":"spa"'),
+      );
 
-      final saved = File('${dir.path}/settings.json').readAsStringSync();
+      final saved = file.readAsStringSync();
       expect(saved, contains('"audioLanguage":"por"'));
       expect(saved, contains('"subtitleLanguage":"spa"'));
     });

@@ -26,7 +26,7 @@ void main() {
   late Directory dir;
 
   setUp(() => dir = makeTempDir());
-  tearDown(() => dir.deleteSync(recursive: true));
+  tearDown(() => deleteTempDir(dir));
 
   group('bienvenida', () {
     testWidgets('ofrece Stremio, Nuvio, Pegar lista y los addons básicos', (

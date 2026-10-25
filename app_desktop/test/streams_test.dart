@@ -61,7 +61,7 @@ void main() {
     world = CatalogWorld();
     world.routes[_firstKey] = _streamsBody();
   });
-  tearDown(() => dir.deleteSync(recursive: true));
+  tearDown(() => deleteTempDir(dir));
 
   Meta matrix() => Meta.fromJson(movieMeta('tt0133093', 'The Matrix'));
 
