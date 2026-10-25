@@ -10,6 +10,7 @@ import '../../data/progress_providers.dart';
 import '../../data/providers.dart';
 import '../../features/detail/detail_utils.dart';
 import '../../features/onboarding/onboarding_controller.dart';
+import '../../features/player/play_args.dart';
 import '../../features/player/play_item.dart';
 import '../../features/player/player_route.dart';
 import '../../features/streams/streams_args.dart';
@@ -122,7 +123,9 @@ class _DiagnosticsDriverState extends ConsumerState<DiagnosticsDriver> {
       final search = config.search;
       if (search != null) await _logSearch(search);
       final open = config.open;
-      if (open != null) await _logOpen(open, config.playFirstStream);
+      if (open != null) {
+        await _logOpen(open, config.playFirstStream, config.autoplay);
+      }
     } on Object catch (e) {
       _log.log('diagnóstico: el recorrido falló: ${e.runtimeType}');
     }
@@ -186,7 +189,11 @@ class _DiagnosticsDriverState extends ConsumerState<DiagnosticsDriver> {
     );
   }
 
-  Future<void> _logOpen(String open, bool playFirstStream) async {
+  Future<void> _logOpen(
+    String open,
+    bool playFirstStream,
+    bool autoplay,
+  ) async {
     final slash = open.indexOf('/');
     if (slash <= 0 || slash == open.length - 1) {
       _log.log('diagnóstico: PARCEL_DIAG_OPEN tiene que ser tipo/id');
@@ -217,6 +224,29 @@ class _DiagnosticsDriverState extends ConsumerState<DiagnosticsDriver> {
       'logo=${meta.logo != null ? 'sí' : 'no'} '
       'géneros=${meta.genres.length} elenco=${meta.cast.length}',
     );
+    final credits = meta.credits;
+    _log.log(
+      'detalle $open: elenco ${credits.cast.length} '
+      '(${credits.cast.where((m) => m.photoUrl != null).length} con foto), '
+      'dirección ${credits.directors.length} ${credits.directors}, '
+      'guion ${credits.writers.length}, tráilers ${meta.trailerStreams.length}',
+    );
+    if (autoplay) {
+      _log.log('reproducción: «Ver» automático para «${meta.name}»');
+      final first = hasEpisodes(meta) ? orderedEpisodes(meta).first : null;
+      unawaited(
+        router.push(
+          Routes.play,
+          extra: PlayArgs(
+            meta: meta,
+            video: first,
+            // Sin nadie para contestar «¿continuar?»: retoma directo.
+            resume: ResumeMode.resume,
+          ),
+        ),
+      );
+      return;
+    }
 
     final video = hasEpisodes(meta) ? orderedEpisodes(meta).first : null;
     final args = StreamsArgs(meta: meta, video: video);

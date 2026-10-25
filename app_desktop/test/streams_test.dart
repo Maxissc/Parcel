@@ -9,10 +9,12 @@ import 'package:parcel_desktop/app/router.dart';
 import 'package:parcel_desktop/data/platform.dart';
 import 'package:parcel_desktop/features/player/player_screen.dart';
 import 'package:parcel_desktop/features/streams/stream_info.dart';
+import 'package:parcel_desktop/shared/stream_labels.dart';
 import 'package:parcel_desktop/features/streams/streams_args.dart';
 import 'package:parcel_desktop/features/streams/streams_screen.dart';
 
 import 'support/catalog_world.dart';
+import 'support/fakes.dart';
 import 'support/pump.dart';
 import 'support/test_env.dart';
 
@@ -51,13 +53,15 @@ AddonStream _s(Map<String, dynamic> json) =>
 void main() {
   late Directory dir;
   late CatalogWorld world;
+  late FakeWindowService window;
 
   setUp(() {
     dir = makeTempDir();
+    window = FakeWindowService();
     world = CatalogWorld();
     world.routes[_firstKey] = _streamsBody();
   });
-  tearDown(() => dir.deleteSync(recursive: true));
+  tearDown(() => deleteTempDir(dir));
 
   Meta matrix() => Meta.fromJson(movieMeta('tt0133093', 'The Matrix'));
 
@@ -67,22 +71,31 @@ void main() {
     List<String> addons = const [streamsAddonUrl, secondStreamsAddonUrl],
     List<Uri>? openedUrls,
     FakePlaybackEngine? engine,
+    List<FakePlaybackEngine> more = const [],
+    bool? autoSelectSource,
+    WindowService window = const NoopWindowService(),
   }) async {
+    // Cada vez que se abre un reproductor sale el siguiente motor de la fila.
+    final engines = [?engine, ...more];
     await seedData(
       tester,
       dir,
       world.client,
       urls: [cinemetaUrl, subtitlesUrl, ...addons],
       onboardingCompleted: true,
+      autoSelectSource: autoSelectSource,
     );
     await pumpApp(
       tester,
       dir,
       world.client,
       openedUrls: openedUrls,
+      window: window,
       overrides: [
-        if (engine != null)
-          playbackEngineFactoryProvider.overrideWithValue(() => engine),
+        if (engines.isNotEmpty)
+          playbackEngineFactoryProvider.overrideWithValue(
+            () => engines.length > 1 ? engines.removeAt(0) : engines.first,
+          ),
       ],
     );
     routerOf(tester).push(Routes.streams, extra: args);
@@ -272,9 +285,10 @@ void main() {
       expect(find.text('Del mismo addon'), findsOneWidget);
       expect(find.text('Igual que el anterior'), findsNothing);
 
+      // El sugerido es el primero del ranking del addon (1080p antes que 720p).
       await tester.sendKeyEvent(LogicalKeyboardKey.enter);
       await pumpIo(tester, ticks: 4);
-      expect(engine.lastSource?.url, 'http://media.example.com/dos.mkv');
+      expect(engine.lastSource?.url, 'http://media.example.com/dos2.mkv');
     },
   );
 
@@ -305,34 +319,126 @@ void main() {
       final engine = FakePlaybackEngine(
         mediaDuration: const Duration(minutes: 10),
       );
+      final nextEngine = FakePlaybackEngine(
+        mediaDuration: const Duration(minutes: 10),
+      );
       await openStreams(
         tester,
         StreamsArgs(meta: meta, video: meta.videos[2]),
         addons: const [streamsAddonUrl],
         engine: engine,
+        more: [nextEngine],
+        window: window,
       );
       await tester.tap(find.text('Episodio 3'));
-      await pumpIo(tester, ticks: 4);
-      expect(find.byType(PlayerScreen), findsOneWidget);
+      await pumpUntil(tester, find.byType(PlayerScreen));
+      expect(window.fullScreenCalls.last, isTrue);
 
       engine.tick(const Duration(minutes: 11));
-      await tester.pump();
-      await tester.pump();
+      await pumpUntil(tester, find.text('Ver siguiente episodio'));
       await tester.tap(find.text('Ver siguiente episodio'));
       await pumpIo(tester, ticks: 6);
+
+      // El siguiente episodio arranca solo, con el mismo addon y bingeGroup.
+      expect(find.byType(StreamsScreen), findsNothing);
+      expect(find.byType(PlayerScreen), findsOneWidget);
+      expect(nextEngine.lastSource?.url, 'http://media.example.com/e4.mkv');
+      // El cambio de ruta no saca la pantalla completa.
+      expect(window.fullScreenCalls.last, isTrue);
+      expect(window.fullScreen, isTrue);
+
+      // El primer Esc sale de pantalla completa; el segundo vuelve al detalle.
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await pumpIo(tester, ticks: 3);
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await pumpIo(tester, ticks: 6);
+      expect(find.byType(PlayerScreen), findsNothing);
+      expect(find.byType(NavigationRail), findsOneWidget);
+      expect(window.fullScreenCalls.last, isFalse);
+    },
+  );
+
+  testWidgets(
+    'con la fuente automática apagada, «siguiente» abre la lista de streams',
+    (tester) async {
+      final meta = Meta.fromJson(seriesMeta('tt0903747', 'Breaking Bad'));
+      world.routes['streams.example.com/stream/series/tt0903747:1:3.json'] = {
+        'streams': [
+          {
+            'name': 'Streams uno',
+            'title': 'Episodio 3',
+            'url': 'http://media.example.com/e3.mkv',
+            'behaviorHints': {'bingeGroup': 'uno-1080'},
+          },
+        ],
+      };
+      world.routes['streams.example.com/stream/series/tt0903747:2:1.json'] = {
+        'streams': [
+          {
+            'name': 'Streams uno',
+            'title': 'Episodio 4',
+            'url': 'http://media.example.com/e4.mkv',
+            'behaviorHints': {'bingeGroup': 'uno-1080'},
+          },
+        ],
+      };
+      final engine = FakePlaybackEngine(
+        mediaDuration: const Duration(minutes: 10),
+      );
+      await openStreams(
+        tester,
+        StreamsArgs(meta: meta, video: meta.videos[2]),
+        addons: const [streamsAddonUrl],
+        engine: engine,
+        autoSelectSource: false,
+      );
+      await tester.tap(find.text('Episodio 3'));
+      await pumpUntil(tester, find.byType(PlayerScreen));
+      engine.tick(const Duration(minutes: 11));
+      await pumpUntil(tester, find.text('Ver siguiente episodio'));
+      await tester.tap(find.text('Ver siguiente episodio'));
+      await pumpUntil(tester, find.text('Igual que el anterior'));
 
       expect(find.byType(PlayerScreen), findsNothing);
       expect(find.byType(StreamsScreen), findsOneWidget);
       expect(find.text('T2 E1 · Episodio 2x1'), findsOneWidget);
-      expect(find.text('Episodio 4'), findsOneWidget);
-      expect(find.text('Igual que el anterior'), findsOneWidget);
-
-      await tester.tap(find.byType(BackButton));
-      await pumpIo(tester, ticks: 6);
-      expect(find.byType(StreamsScreen), findsNothing);
-      expect(find.byType(NavigationRail), findsOneWidget);
+      // Deja terminar la escritura del progreso antes de borrar la carpeta.
+      await pumpIo(tester, ticks: 12);
     },
   );
+
+  testWidgets('muestra el orden del ranking y el estado de la caché', (
+    tester,
+  ) async {
+    world.routes[_firstKey] = {
+      'streams': [
+        {
+          'name': 'Bajar',
+          'description': '1080p [RD download]\n💾 4.0 GB',
+          'url': 'http://media.example.com/bajar.mkv',
+        },
+        {
+          'name': 'Listo',
+          'description': '1080p [RD+] 👤 12\n💾 3.0 GB',
+          'url': 'http://media.example.com/listo.mkv',
+        },
+      ],
+    };
+    world.routes[_secondKey] = {'streams': []};
+    await openStreams(tester, StreamsArgs(meta: matrix()));
+
+    // El cacheado va antes que el que hay que bajar, aunque venga después.
+    expect(
+      tester.getTopLeft(find.text('Listo')).dy,
+      lessThan(tester.getTopLeft(find.text('Bajar')).dy),
+    );
+    expect(find.text('Mejor fuente'), findsOneWidget);
+    expect(find.text('⚡ Cacheado'), findsOneWidget);
+    expect(find.text('Sin cachear'), findsOneWidget);
+    expect(find.byTooltip(uncachedTooltip), findsOneWidget);
+    expect(find.text('👤 12'), findsOneWidget);
+    expect(find.text('3.0 GB'), findsOneWidget);
+  });
 
   group('etiquetas del texto del stream', () {
     test('detecta resolución, HDR, DV y tamaño', () {

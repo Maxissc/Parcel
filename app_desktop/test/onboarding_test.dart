@@ -26,7 +26,7 @@ void main() {
   late Directory dir;
 
   setUp(() => dir = makeTempDir());
-  tearDown(() => dir.deleteSync(recursive: true));
+  tearDown(() => deleteTempDir(dir));
 
   group('bienvenida', () {
     testWidgets('ofrece Stremio, Nuvio, Pegar lista y los addons básicos', (
@@ -122,6 +122,7 @@ void main() {
       final client = mockWorld(defaultRoutes());
       await seedData(tester, dir, client, urls: [cinemetaUrl]);
       await pumpApp(tester, dir, client);
+      tester.view.physicalSize = const Size(1280, 1800);
       await _tap(
         tester,
         find.descendant(

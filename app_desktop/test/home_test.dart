@@ -48,7 +48,7 @@ void main() {
     dir = makeTempDir();
     world = CatalogWorld();
   });
-  tearDown(() => dir.deleteSync(recursive: true));
+  tearDown(() => deleteTempDir(dir));
 
   Future<void> openHome(
     WidgetTester tester, {
@@ -341,9 +341,7 @@ void main() {
     await tester.tap(find.text('The Matrix'));
     await pumpIo(tester, ticks: 6);
     await tester.tap(find.text('Ver'));
-    await pumpIo(tester, ticks: 6);
-    await tester.tap(find.text('Calidad HD'));
-    await pumpIo(tester, ticks: 6);
+    await pumpIo(tester, ticks: 8);
     expect(find.byType(PlayerScreen), findsOneWidget);
 
     engine.tick(const Duration(minutes: 4));
@@ -352,8 +350,8 @@ void main() {
     await tester.pump();
     await tester.pump();
 
-    // Atrás, atrás, atrás: reproductor, streams y detalle.
-    for (var i = 0; i < 3; i++) {
+    // Atrás, atrás: reproductor y detalle.
+    for (var i = 0; i < 2; i++) {
       await tester.sendKeyEvent(LogicalKeyboardKey.escape);
       await pumpIo(tester, ticks: 6);
     }

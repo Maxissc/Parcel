@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import '../models/json_helpers.dart';
 import 'account_exception.dart';
 import 'account_http.dart';
+import '../protocol/abortable_http.dart';
 import '../protocol/redact.dart';
 
 const String _service = 'Nuvio';
@@ -93,7 +94,8 @@ class NuvioAccountClient {
     final cached = _cached;
     if (cached != null && !refresh) return cached;
     final response = await sendAccountRequest(
-      () => _http.get(Uri.parse(wellKnownUrl)),
+      (abort) =>
+          abortableAccountCall(_http, 'GET', Uri.parse(wellKnownUrl), abort),
       service: _service,
       timeout: requestTimeout,
     );
@@ -120,8 +122,11 @@ class NuvioAccountClient {
   Future<NuvioSession> login(String email, String password) async {
     final service = await discover();
     final response = await sendAccountRequest(
-      () => _http.post(
+      (abort) => abortableAccountCall(
+        _http,
+        'POST',
         Uri.parse('${service.backendUrl}/auth/v1/token?grant_type=password'),
+        abort,
         headers: {
           'content-type': 'application/json',
           'apikey': service.publishableKey,
@@ -159,12 +164,15 @@ class NuvioAccountClient {
   Future<List<NuvioAddon>> getAddons(NuvioSession session) async {
     final service = session.service;
     final response = await sendAccountRequest(
-      () => _http.get(
+      (abort) => abortableAccountCall(
+        _http,
+        'GET',
         Uri.parse(
           '${service.backendUrl}/rest/v1/addons'
           '?select=url,name,enabled,sort_order,profile_id'
           '&order=profile_id.asc,sort_order.asc',
         ),
+        abort,
         headers: _authHeaders(session),
       ),
       service: _service,
@@ -222,12 +230,16 @@ class NuvioAccountClient {
   /// del lado del servidor hasta que venza.
   Future<void> logout(NuvioSession session) async {
     try {
-      await _http
-          .post(
-            Uri.parse('${session.service.backendUrl}/auth/v1/logout'),
-            headers: _authHeaders(session),
-          )
-          .timeout(requestTimeout);
+      await runWithTimeoutAbort(
+        requestTimeout,
+        (abort) => abortableAccountCall(
+          _http,
+          'POST',
+          Uri.parse('${session.service.backendUrl}/auth/v1/logout'),
+          abort,
+          headers: _authHeaders(session),
+        ),
+      );
     } on Object {
       // Falla silenciosa a propósito.
     }

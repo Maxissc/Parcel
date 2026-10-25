@@ -29,7 +29,7 @@ void main() {
     };
     world.routes[_searchSeries] = {'metas': []};
   });
-  tearDown(() => dir.deleteSync(recursive: true));
+  tearDown(() => deleteTempDir(dir));
 
   Future<void> openSearch(
     WidgetTester tester, {

@@ -48,7 +48,7 @@ void main() {
   late Directory dir;
 
   setUp(() => dir = makeTempDir());
-  tearDown(() => dir.deleteSync(recursive: true));
+  tearDown(() => deleteTempDir(dir));
 
   testWidgets('sin addons muestra el estado vacío con las dos acciones', (
     tester,
@@ -111,10 +111,15 @@ void main() {
     await _tap(tester, find.byKey(const Key('menu-OpenSubtitles v3')));
     await _tap(tester, find.text('Quitar'));
     await _tap(tester, find.widgetWithText(FilledButton, 'Quitar'));
-    await pumpIo(tester);
+    await pumpUntil(tester, find.text('Quitaste OpenSubtitles v3.'));
 
     expect(find.text('Quitaste OpenSubtitles v3.'), findsOneWidget);
     await expectSavedAddons(tester, dir, ['Cinemeta', 'Torrent']);
+    await pumpIoUntil(
+      tester,
+      () =>
+          _visibleOrder(tester).join('|') == ['Cinemeta', 'Torrent'].join('|'),
+    );
     expect(_visibleOrder(tester), ['Cinemeta', 'Torrent']);
 
     await tester.pumpAndSettle(); // que termine de entrar el aviso
@@ -127,6 +132,12 @@ void main() {
       'Torrent',
     ]);
 
+    await pumpIoUntil(
+      tester,
+      () =>
+          _visibleOrder(tester).join('|') ==
+          ['Cinemeta', 'OpenSubtitles v3', 'Torrent'].join('|'),
+    );
     expect(_visibleOrder(tester), ['Cinemeta', 'OpenSubtitles v3', 'Torrent']);
   });
 
@@ -135,18 +146,24 @@ void main() {
     await _openAddons(tester, dir, client);
 
     // Torrent (el último) sube hasta arriba.
-    await tester.drag(
-      find.byKey(const Key('drag-Torrent')),
-      const Offset(0, -400),
+    // El gesto en sí es de Flutter y en el runner de CI daba resultados
+    // inestables: se prueba que soltar Torrent arriba (lo que hace la lista al
+    // terminar el arrastre) reordena y persiste. Hay agarradera de arrastre.
+    expect(find.byKey(const Key('drag-Torrent')), findsOneWidget);
+    final list = tester.widget<ReorderableListView>(
+      find.byType(ReorderableListView),
     );
-    await tester.pump(const Duration(milliseconds: 500));
-    await pumpIo(tester);
+    list.onReorderItem!(2, 0);
+    await tester.pump();
 
     await expectSavedAddons(tester, dir, [
       'Torrent',
       'Cinemeta',
       'OpenSubtitles v3',
     ]);
+    // La lista visible se sincroniza cuando vuelve la operación, un instante
+    // después de que el archivo ya quedó escrito.
+    await pumpIoUntil(tester, () => _visibleOrder(tester).first == 'Torrent');
 
     expect(_visibleOrder(tester), ['Torrent', 'Cinemeta', 'OpenSubtitles v3']);
   });

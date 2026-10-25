@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:parcel_core/parcel_core.dart';
 import 'package:parcel_desktop/data/platform.dart';
+import 'package:parcel_desktop/data/playback_providers.dart';
 import 'package:parcel_desktop/data/providers.dart';
 
 /// Manifest mínimo válido de un addon.
@@ -70,14 +71,49 @@ MockClient mockWorld(
 /// Carpeta temporal para los datos de un test.
 Directory makeTempDir() => Directory.systemTemp.createTempSync('parcel_test_');
 
+/// Borra la carpeta temporal de una prueba. En Windows una escritura que
+/// todavía termina (o el antivirus del runner) puede tenerla tomada un rato:
+/// reintenta y, si igual no puede, la deja (es limpieza, no parte del test).
+Future<void> deleteTempDir(Directory dir) async {
+  for (var i = 0; i < 20; i++) {
+    try {
+      if (dir.existsSync()) dir.deleteSync(recursive: true);
+      return;
+    } on FileSystemException {
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    }
+  }
+}
+
+/// Prober que da por buenos los videos de `media.example.com` (de 50 MB) y
+/// rechaza con 404 todo lo demás. [broken] lista paths que responden 404.
+StreamProber fakeProber({Set<String> broken = const {}}) => StreamProber(
+  MockClient((request) async {
+    final url = request.url;
+    if (url.host == 'media.example.com' && !broken.contains(url.path)) {
+      return http.Response(
+        '',
+        206,
+        headers: {
+          'content-type': 'video/mp4',
+          'content-range': 'bytes 0-0/52428800',
+        },
+      );
+    }
+    return http.Response('no encontrado', 404);
+  }),
+);
+
 /// Overrides para correr la app sobre [dir] con el [client] falso. No toca el
-/// navegador ni la ventana.
+/// navegador ni la ventana. La prueba de fuentes usa [prober].
 List<Override> testOverrides(
   Directory dir,
   http.Client client, {
   List<Uri>? openedUrls,
   WindowService window = const NoopWindowService(),
+  StreamProber? prober,
 }) => [
+  streamProberProvider.overrideWithValue(prober ?? fakeProber()),
   dataDirectoryProvider.overrideWith((ref) => dir),
   httpClientProvider.overrideWithValue(client),
   windowServiceProvider.overrideWithValue(window),

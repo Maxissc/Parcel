@@ -51,3 +51,59 @@ String playbackErrorMessage(String raw) {
   }
   return 'No se pudo abrir el video.';
 }
+
+/// Qué hacer con un error que avisa mpv: si corta la reproducción, el mensaje
+/// para el usuario y la línea para el log (ambos sin URLs).
+class EngineErrorDecision {
+  const EngineErrorDecision({
+    required this.fatal,
+    required this.userMessage,
+    required this.logLine,
+  });
+
+  final bool fatal;
+  final String userMessage;
+  final String logLine;
+}
+
+/// Decide con [gate] si el error [raw] de mpv es fatal.
+EngineErrorDecision decideEngineError(MediaLoadGate gate, String raw) {
+  final fatal = gate.isFatalError;
+  return EngineErrorDecision(
+    fatal: fatal,
+    userMessage: playbackErrorMessage(raw),
+    logLine:
+        '${fatal ? 'Error de reproducción' : 'Aviso de reproducción'}: '
+        '${redactUrlsInText(raw)}',
+  );
+}
+
+/// Sabe si el medio ya cargó, para decidir si un error de mpv es fatal.
+///
+/// Los avisos de mpv con el medio cargado (un subtítulo que no abre, un cuadro
+/// que no decodifica) no cortan la reproducción. Un error es fatal solo si el
+/// medio no cargó: no hubo pistas de audio o video ni duración.
+class MediaLoadGate {
+  bool _tracks = false;
+  bool _duration = false;
+
+  /// Las pistas que informó el motor: cuenta si hay de audio o de video.
+  void onTracks({required bool hasAudio, required bool hasVideo}) {
+    if (hasAudio || hasVideo) _tracks = true;
+  }
+
+  void onDuration(Duration duration) {
+    if (duration > Duration.zero) _duration = true;
+  }
+
+  bool get loaded => _tracks || _duration;
+
+  /// `true` si un error que llega ahora tiene que cortar la reproducción.
+  bool get isFatalError => !loaded;
+
+  /// Al abrir otro medio.
+  void reset() {
+    _tracks = false;
+    _duration = false;
+  }
+}

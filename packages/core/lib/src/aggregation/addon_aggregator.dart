@@ -5,6 +5,7 @@ import '../models/addon_stream.dart';
 import '../models/installed_addon.dart';
 import '../models/meta.dart';
 import '../models/subtitle.dart';
+import '../protocol/abortable_http.dart';
 import '../protocol/addon_client.dart';
 import '../protocol/addon_exception.dart';
 import 'addon_result.dart';
@@ -65,11 +66,12 @@ class AddonAggregator {
     Map<String, String> extra = const {},
   }) => _guard(
     ref.addon,
-    () => client.catalog(
+    (abort) => client.catalog(
       ref.addon,
       ref.catalog.type,
       ref.catalog.id,
       extra: extra,
+      abortTrigger: abort,
     ),
   );
 
@@ -79,7 +81,10 @@ class AddonAggregator {
   Future<AddonResult<Meta>?> meta(String type, String id) async {
     AddonResult<Meta>? firstFailure;
     for (final addon in _supporting('meta', type, id)) {
-      final result = await _guard(addon, () => client.meta(addon, type, id));
+      final result = await _guard(
+        addon,
+        (abort) => client.meta(addon, type, id, abortTrigger: abort),
+      );
       if (result is AddonSuccess<Meta>) return result;
       firstFailure ??= result;
     }
@@ -97,7 +102,8 @@ class AddonAggregator {
     'stream',
     type,
     id,
-    (addon) => client.streams(addon, type, id, extra: extra),
+    (addon, abort) =>
+        client.streams(addon, type, id, extra: extra, abortTrigger: abort),
   );
 
   /// Subtítulos de todos los addons que soportan `subtitles`. [extra] lleva
@@ -110,7 +116,8 @@ class AddonAggregator {
     'subtitles',
     type,
     id,
-    (addon) => client.subtitles(addon, type, id, extra: extra),
+    (addon, abort) =>
+        client.subtitles(addon, type, id, extra: extra, abortTrigger: abort),
   );
 
   List<InstalledAddon> _supporting(String resource, String type, String id) => [
@@ -122,18 +129,19 @@ class AddonAggregator {
     String resource,
     String type,
     String id,
-    Future<T> Function(InstalledAddon) request,
+    Future<T> Function(InstalledAddon, Future<void> abortTrigger) request,
   ) => Future.wait([
     for (final addon in _supporting(resource, type, id))
-      _guard(addon, () => request(addon)),
+      _guard(addon, (abort) => request(addon, abort)),
   ]);
 
+  /// Corre [request] con el plazo [timeout]; al vencer, aborta el pedido.
   Future<AddonResult<T>> _guard<T>(
     InstalledAddon addon,
-    Future<T> Function() request,
+    Future<T> Function(Future<void> abortTrigger) request,
   ) async {
     try {
-      return AddonSuccess(addon, await request().timeout(timeout));
+      return AddonSuccess(addon, await runWithTimeoutAbort(timeout, request));
     } on AddonException catch (e) {
       return AddonFailure(addon, e);
     } on TimeoutException {

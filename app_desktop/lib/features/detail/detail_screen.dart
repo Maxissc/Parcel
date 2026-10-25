@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -8,15 +10,19 @@ import 'package:parcel_core/parcel_core.dart' as core show Video;
 import '../../app/router.dart';
 import '../../app/theme.dart';
 import '../../data/browse_providers.dart';
+import '../../data/platform.dart';
 import '../../data/progress_providers.dart';
 import '../../data/providers.dart';
 import '../../shared/remote_image.dart';
 import '../../shared/skeleton.dart';
 import '../../shared/state_views.dart';
 import '../../shared/urls.dart';
+import '../player/play_args.dart';
 import '../player/play_item.dart';
 import '../streams/streams_args.dart';
+import 'cast_section.dart';
 import 'detail_utils.dart';
+import 'tmdb_enrichment.dart';
 
 /// Detalle de una película o serie: fondo, datos, descripción y elenco, y
 /// cómo verla (botón «Ver» o lista de episodios).
@@ -192,7 +198,21 @@ class _DetailBodyState extends ConsumerState<_DetailBody> {
 
   @override
   Widget build(BuildContext context) {
-    final meta = widget.meta;
+    // Con la key de TMDB, las fotos del elenco y el idioma original llegan en
+    // segundo plano y se mezclan con lo que ya hay.
+    final enrichment = ref
+        .watch(
+          tmdbEnrichmentProvider((type: widget.meta.type, id: widget.meta.id)),
+        )
+        .value;
+    final base = widget.meta;
+    final meta = enrichment == null
+        ? base
+        : base.copyWith(
+            originalLanguage:
+                base.originalLanguage ?? enrichment.originalLanguage,
+            castDetails: mergeCastDetails(base.castDetails, enrichment.cast),
+          );
     final loading = widget.loading;
     final notice = widget.notice;
     final theme = Theme.of(context);
@@ -285,6 +305,10 @@ class _DetailBodyState extends ConsumerState<_DetailBody> {
                       const SizedBox(height: Spacing.lg),
                       _Notice(message: notice, onRetry: widget.onRetry),
                     ],
+                    if (!loading) ...[
+                      const SizedBox(height: Spacing.xl),
+                      CastSection(credits: meta.credits),
+                    ],
                     const SizedBox(height: Spacing.xl),
                     if (!hasEpisodes(meta))
                       if (loading && meta.type != 'movie')
@@ -359,10 +383,7 @@ class _Info extends ConsumerWidget {
       ?(meta.releaseInfo ??
           (meta.released == null ? null : '${meta.released!.year}')),
       ?meta.runtime,
-    ];
-    final people = <(String, List<String>)>[
-      ('Elenco', meta.cast.take(8).toList()),
-      ('Dirección', meta.directors),
+      ?meta.country,
     ];
 
     return Column(
@@ -383,18 +404,38 @@ class _Info extends ConsumerWidget {
                 ),
               ),
             if (meta.imdbRating != null)
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(Icons.star_rounded, size: 20, color: Colors.amber),
-                  const SizedBox(width: 4),
-                  Text(
-                    meta.imdbRating!,
-                    style: theme.textTheme.bodyLarge?.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
+              DecoratedBox(
+                key: const Key('detail-imdb'),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF5C518),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 2,
                   ),
-                ],
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text(
+                        'IMDb',
+                        style: TextStyle(
+                          color: Colors.black,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        meta.imdbRating!,
+                        style: const TextStyle(
+                          color: Colors.black,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
             for (final genre in meta.genres.take(5))
               Chip(
@@ -417,23 +458,31 @@ class _Info extends ConsumerWidget {
           SizedBox(height: Spacing.sm),
           Skeleton(width: 360, height: 14),
         ],
-        for (final (label, names) in people)
-          if (names.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(top: Spacing.md),
-              child: Text.rich(
-                TextSpan(
-                  children: [
-                    TextSpan(
-                      text: '$label: ',
-                      style: TextStyle(color: scheme.onSurfaceVariant),
-                    ),
-                    TextSpan(text: names.join(', ')),
-                  ],
+        if (meta.awards != null)
+          Padding(
+            padding: const EdgeInsets.only(top: Spacing.md),
+            child: Row(
+              key: const Key('detail-awards'),
+              children: [
+                const Icon(
+                  Icons.emoji_events_outlined,
+                  size: 18,
+                  color: Colors.amber,
                 ),
-                style: theme.textTheme.bodyMedium,
-              ),
+                const SizedBox(width: Spacing.sm),
+                Expanded(
+                  child: Text(
+                    meta.awards!,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+              ],
             ),
+          ),
         const SizedBox(height: Spacing.lg),
         if (!loading) _Actions(meta: meta),
       ],
@@ -520,7 +569,25 @@ class _Actions extends ConsumerWidget {
 
   final Meta meta;
 
+  /// Reproduce: con la fuente automática (por defecto) abre el reproductor
+  /// directo; si no, la lista de streams.
   void _open(
+    BuildContext context,
+    WidgetRef ref, {
+    core.Video? video,
+    ResumeMode resume = ResumeMode.ask,
+  }) {
+    if (ref.read(appSettingsProvider).autoSelectSource) {
+      context.push(
+        Routes.play,
+        extra: PlayArgs(meta: meta, video: video, resume: resume),
+      );
+    } else {
+      _chooseSource(context, video: video, resume: resume);
+    }
+  }
+
+  void _chooseSource(
     BuildContext context, {
     core.Video? video,
     ResumeMode resume = ResumeMode.ask,
@@ -528,6 +595,21 @@ class _Actions extends ConsumerWidget {
     context.push(
       Routes.streams,
       extra: StreamsArgs(meta: meta, video: video, resume: resume),
+    );
+  }
+
+  Widget _trailer(BuildContext context, WidgetRef ref) {
+    final trailers = meta.trailerStreams;
+    if (trailers.isEmpty) return const SizedBox.shrink();
+    return OutlinedButton.icon(
+      key: const Key('detail-trailer'),
+      onPressed: () => unawaited(
+        ref.read(urlOpenerProvider)(
+          Uri.https('www.youtube.com', '/watch', {'v': trailers.first.ytId}),
+        ),
+      ),
+      icon: const Icon(Icons.smart_display_outlined),
+      label: const Text('Tráiler'),
     );
   }
 
@@ -541,18 +623,31 @@ class _Actions extends ConsumerWidget {
         meta,
         (videoId) => repository.get(meta.type, meta.id, videoId),
       );
-      if (last == null || !last.isInProgress) return const SizedBox.shrink();
+      if (last == null || !last.isInProgress) return _trailer(context, ref);
       final video = meta.videos.firstWhere((v) => v.id == last.videoId);
       final tag = episodeTagOf(video);
-      return FilledButton.icon(
-        key: const Key('detail-continue'),
-        onPressed: () =>
-            _open(context, video: video, resume: ResumeMode.resume),
-        icon: const Icon(Icons.play_arrow),
-        label: Text(
-          'Continuar${tag == null ? '' : ' $tag'} desde '
-          '${formatPlaybackTime(last.position)}',
-        ),
+      return Wrap(
+        spacing: Spacing.md,
+        runSpacing: Spacing.sm,
+        children: [
+          FilledButton.icon(
+            key: const Key('detail-continue'),
+            onPressed: () =>
+                _open(context, ref, video: video, resume: ResumeMode.resume),
+            icon: const Icon(Icons.play_arrow),
+            label: Text(
+              'Continuar${tag == null ? '' : ' $tag'} desde '
+              '${formatPlaybackTime(last.position)}',
+            ),
+          ),
+          OutlinedButton(
+            key: const Key('detail-choose-source'),
+            onPressed: () =>
+                _chooseSource(context, video: video, resume: ResumeMode.resume),
+            child: const Text('Elegir fuente'),
+          ),
+          _trailer(context, ref),
+        ],
       );
     }
 
@@ -561,13 +656,13 @@ class _Actions extends ConsumerWidget {
     final watch = resumable == null
         ? FilledButton.icon(
             key: const Key('detail-watch'),
-            onPressed: () => _open(context),
+            onPressed: () => _open(context, ref),
             icon: const Icon(Icons.play_arrow),
             label: const Text('Ver'),
           )
         : OutlinedButton.icon(
             key: const Key('detail-watch'),
-            onPressed: () => _open(context),
+            onPressed: () => _open(context, ref),
             icon: const Icon(Icons.play_arrow),
             label: const Text('Ver'),
           );
@@ -578,13 +673,19 @@ class _Actions extends ConsumerWidget {
         if (resumable != null)
           FilledButton.icon(
             key: const Key('detail-continue'),
-            onPressed: () => _open(context, resume: ResumeMode.resume),
+            onPressed: () => _open(context, ref, resume: ResumeMode.resume),
             icon: const Icon(Icons.play_arrow),
             label: Text(
               'Continuar desde ${formatPlaybackTime(resumable.position)}',
             ),
           ),
         watch,
+        OutlinedButton(
+          key: const Key('detail-choose-source'),
+          onPressed: () => _chooseSource(context),
+          child: const Text('Elegir fuente'),
+        ),
+        _trailer(context, ref),
       ],
     );
   }
@@ -674,10 +775,28 @@ class _EpisodesState extends ConsumerState<_Episodes> {
                 child: _EpisodeTile(
                   video: video,
                   progress: progressOf(video.id),
-                  onTap: () => context.push(
-                    Routes.streams,
-                    extra: StreamsArgs(meta: meta, video: video),
-                  ),
+                  // Con la fuente automática, cada episodio ofrece elegir la
+                  // fuente a mano.
+                  onChooseSource:
+                      ref.watch(appSettingsProvider).autoSelectSource
+                      ? () => context.push(
+                          Routes.streams,
+                          extra: StreamsArgs(meta: meta, video: video),
+                        )
+                      : null,
+                  onTap: () {
+                    if (ref.read(appSettingsProvider).autoSelectSource) {
+                      context.push(
+                        Routes.play,
+                        extra: PlayArgs(meta: meta, video: video),
+                      );
+                    } else {
+                      context.push(
+                        Routes.streams,
+                        extra: StreamsArgs(meta: meta, video: video),
+                      );
+                    }
+                  },
                 ),
               );
             },
@@ -693,11 +812,15 @@ class _EpisodeTile extends StatelessWidget {
     required this.video,
     required this.progress,
     required this.onTap,
+    this.onChooseSource,
   });
 
   final core.Video video;
   final PlaybackProgress? progress;
   final VoidCallback onTap;
+
+  /// Lleva a la lista de streams de este episodio; con `null` no hay botón.
+  final VoidCallback? onChooseSource;
 
   @override
   Widget build(BuildContext context) {
@@ -796,6 +919,13 @@ class _EpisodeTile extends StatelessWidget {
                   ],
                 ),
               ),
+              if (onChooseSource != null)
+                IconButton(
+                  key: Key('episode-choose-source-${video.id}'),
+                  tooltip: 'Elegir fuente',
+                  icon: const Icon(Icons.playlist_play),
+                  onPressed: onChooseSource,
+                ),
             ],
           ),
         ),

@@ -48,7 +48,7 @@ void main() {
       ],
     };
   });
-  tearDown(() => dir.deleteSync(recursive: true));
+  tearDown(() => deleteTempDir(dir));
 
   Future<void> openDetail(
     WidgetTester tester,
@@ -56,6 +56,8 @@ void main() {
     Meta? hint,
     List<PlaybackProgress> progress = const [],
     FakePlaybackEngine? engine,
+    bool tall = false,
+    bool? autoSelectSource,
   }) async {
     await seedData(
       tester,
@@ -63,6 +65,7 @@ void main() {
       world.client,
       urls: [cinemetaUrl, subtitlesUrl, streamsAddonUrl],
       onboardingCompleted: true,
+      autoSelectSource: autoSelectSource,
       progress: progress,
     );
     await pumpApp(
@@ -74,6 +77,9 @@ void main() {
           playbackEngineFactoryProvider.overrideWithValue(() => engine),
       ],
     );
+    // El elenco empuja la lista de episodios hacia abajo: con una ventana alta
+    // se ven los primeros sin scroll.
+    if (tall) tester.view.physicalSize = const Size(1280, 1400);
     routerOf(tester).push(path, extra: hint);
     await pumpIo(tester, ticks: 6);
   }
@@ -81,7 +87,11 @@ void main() {
   testWidgets('una serie muestra sus datos, temporadas y episodios', (
     tester,
   ) async {
-    await openDetail(tester, Routes.detailPath('series', 'tt0903747'));
+    await openDetail(
+      tester,
+      Routes.detailPath('series', 'tt0903747'),
+      tall: true,
+    );
 
     expect(find.text('Breaking Bad'), findsOneWidget);
     expect(find.text('2008–2013'), findsOneWidget);
@@ -171,7 +181,7 @@ void main() {
     expect(find.byKey(const Key('episode-progress')), findsOneWidget);
   });
 
-  testWidgets('tocar un episodio abre los streams de ese episodio', (
+  testWidgets('tocar un episodio lo reproduce solo con la mejor fuente', (
     tester,
   ) async {
     world.routes['streams.example.com/stream/series/tt0903747:1:2.json'] = {
@@ -179,25 +189,78 @@ void main() {
         {'name': 'Streams uno', 'url': 'http://media.example.com/e2.mkv'},
       ],
     };
-    await openDetail(tester, Routes.detailPath('series', 'tt0903747'));
+    final engine = FakePlaybackEngine(
+      mediaDuration: const Duration(minutes: 10),
+    );
+    await openDetail(
+      tester,
+      Routes.detailPath('series', 'tt0903747'),
+      engine: engine,
+      tall: true,
+    );
 
     await tester.tap(find.text('2. Episodio 1x2'));
-    await pumpIo(tester, ticks: 6);
+    await pumpIo(tester, ticks: 8);
 
-    expect(find.byType(StreamsScreen), findsOneWidget);
-    expect(find.text('T1 E2 · Episodio 1x2'), findsOneWidget);
+    expect(find.byType(PlayerScreen), findsOneWidget);
+    expect(find.byType(StreamsScreen), findsNothing);
+    expect(engine.lastSource?.url, 'http://media.example.com/e2.mkv');
     expect(
       world.requests,
       contains('streams.example.com/stream/series/tt0903747:1:2.json'),
     );
   });
 
-  testWidgets('una película ofrece «Ver» y abre los streams', (tester) async {
-    await openDetail(tester, Routes.detailPath('movie', 'tt0133093'));
+  testWidgets(
+    'con la fuente automática apagada, el episodio abre los streams',
+    (tester) async {
+      world.routes['streams.example.com/stream/series/tt0903747:1:2.json'] = {
+        'streams': [
+          {'name': 'Streams uno', 'url': 'http://media.example.com/e2.mkv'},
+        ],
+      };
+      await openDetail(
+        tester,
+        Routes.detailPath('series', 'tt0903747'),
+        autoSelectSource: false,
+        tall: true,
+      );
+
+      await tester.tap(find.text('2. Episodio 1x2'));
+      await pumpIo(tester, ticks: 6);
+
+      expect(find.byType(StreamsScreen), findsOneWidget);
+      expect(find.text('T1 E2 · Episodio 1x2'), findsOneWidget);
+    },
+  );
+
+  testWidgets('«Ver» arranca solo con el mejor stream', (tester) async {
+    final engine = FakePlaybackEngine(
+      mediaDuration: const Duration(minutes: 10),
+    );
+    await openDetail(
+      tester,
+      Routes.detailPath('movie', 'tt0133093'),
+      engine: engine,
+    );
 
     expect(find.text('The Matrix'), findsOneWidget);
     expect(find.text('Continuar desde 2:00'), findsNothing);
     await tester.tap(find.text('Ver'));
+    await tester.pump();
+    // Mientras busca, la pantalla de carga sobre el fondo del contenido.
+    expect(find.text('Buscando la mejor fuente…'), findsOneWidget);
+    await pumpIo(tester, ticks: 8);
+
+    expect(find.byType(PlayerScreen), findsOneWidget);
+    expect(find.byType(StreamsScreen), findsNothing);
+    expect(engine.lastSource?.url, 'http://media.example.com/matrix.mkv');
+  });
+
+  testWidgets('«Elegir fuente» abre la lista de streams', (tester) async {
+    await openDetail(tester, Routes.detailPath('movie', 'tt0133093'));
+
+    await tester.tap(find.byKey(const Key('detail-choose-source')));
     await pumpIo(tester, ticks: 6);
 
     expect(find.byType(StreamsScreen), findsOneWidget);
@@ -220,9 +283,7 @@ void main() {
     expect(find.text('Continuar desde 2:00'), findsOneWidget);
     expect(find.text('Ver'), findsOneWidget);
     await tester.tap(find.text('Continuar desde 2:00'));
-    await pumpIo(tester, ticks: 6);
-    await tester.tap(find.text('Calidad HD'));
-    await pumpIo(tester, ticks: 6);
+    await pumpIo(tester, ticks: 8);
 
     expect(find.byType(PlayerScreen), findsOneWidget);
     expect(find.text('Ya empezaste esto'), findsNothing);
@@ -328,5 +389,42 @@ void main() {
     test('los episodios salen por número', () {
       expect(episodesOf(meta, 2).map((v) => v.episode), [1, 2]);
     });
+  });
+
+  testWidgets(
+    'con la fuente automática, cada episodio ofrece «Elegir fuente»',
+    (tester) async {
+      world.routes['streams.example.com/stream/series/tt0903747:1:2.json'] = {
+        'streams': [
+          {'name': 'Streams uno', 'url': 'http://media.example.com/e2.mkv'},
+        ],
+      };
+      await openDetail(
+        tester,
+        Routes.detailPath('series', 'tt0903747'),
+        tall: true,
+      );
+
+      expect(find.byTooltip('Elegir fuente'), findsNWidgets(3));
+      await tester.tap(
+        find.byKey(const Key('episode-choose-source-tt0903747:1:2')),
+      );
+      await pumpIo(tester, ticks: 8);
+
+      expect(find.byType(StreamsScreen), findsOneWidget);
+      expect(find.text('T1 E2 · Episodio 1x2'), findsOneWidget);
+    },
+  );
+
+  testWidgets('con la fuente automática apagada no hay «Elegir fuente» por '
+      'episodio (el toque ya abre la lista)', (tester) async {
+    await openDetail(
+      tester,
+      Routes.detailPath('series', 'tt0903747'),
+      tall: true,
+      autoSelectSource: false,
+    );
+
+    expect(find.byTooltip('Elegir fuente'), findsNothing);
   });
 }

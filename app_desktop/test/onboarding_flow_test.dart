@@ -53,7 +53,7 @@ void main() {
   late Directory dir;
 
   setUp(() => dir = makeTempDir());
-  tearDown(() => dir.deleteSync(recursive: true));
+  tearDown(() => deleteTempDir(dir));
 
   group('cancelar a mitad de un login', () {
     testWidgets('Nuvio: Atrás durante el login no llega a revisar y cierra la '

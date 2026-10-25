@@ -4,15 +4,23 @@ import 'package:parcel_core/parcel_core.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:window_manager/window_manager.dart';
 
+import '../app/diagnostics/diag_log.dart';
 import '../playback/media_kit_playback_engine.dart';
+import '../playback/playback_errors.dart';
 
 /// Crea el motor de reproducción. En la app es [MediaKitPlaybackEngine]; en
 /// los tests, un motor falso.
 typedef PlaybackEngineFactory = PlaybackEngine Function();
 
-final playbackEngineFactoryProvider = Provider<PlaybackEngineFactory>(
-  (ref) => MediaKitPlaybackEngine.new,
-);
+final playbackEngineFactoryProvider = Provider<PlaybackEngineFactory>((ref) {
+  final diag = ref.read(diagLogProvider);
+  // Solo con el diagnóstico prendido (debug): lo que cuenta el motor, sin URLs.
+  return () => MediaKitPlaybackEngine(
+    onLog: diag.enabled
+        ? (message) => diag.log('motor: ${redactUrlsInText(message)}')
+        : null,
+  );
+});
 
 /// Abre [uri] en el navegador. Devuelve `false` si no se pudo.
 typedef UrlOpener = Future<bool> Function(Uri uri);
@@ -130,4 +138,29 @@ class DesktopWindowService implements WindowService {
 
 final windowServiceProvider = Provider<WindowService>(
   (ref) => const NoopWindowService(),
+);
+
+/// Quién tiene la pantalla completa mientras se reproduce. Al pasar de un
+/// episodio al que sigue, la pantalla nueva toma la ventana antes de que la
+/// vieja la suelte: la pantalla completa solo se deja cuando se va el último.
+class FullScreenOwners {
+  FullScreenOwners(this._window);
+
+  final WindowService _window;
+  int _owners = 0;
+
+  /// Toma la ventana. Solo el primero fija [fullScreen]; los que llegan
+  /// después respetan cómo está (el usuario pudo cambiarla con F).
+  Future<void> acquire({required bool fullScreen}) async {
+    if (_owners++ == 0) await _window.setFullScreen(fullScreen);
+  }
+
+  /// Suelta la ventana; si no queda nadie, sale de pantalla completa.
+  Future<void> release() async {
+    if (_owners > 0 && --_owners == 0) await _window.setFullScreen(false);
+  }
+}
+
+final fullScreenOwnersProvider = Provider<FullScreenOwners>(
+  (ref) => FullScreenOwners(ref.watch(windowServiceProvider)),
 );

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'playback_engine.dart';
 import 'playback_source.dart';
 import 'playback_state.dart';
+import 'playback_stats.dart';
 import 'playback_track.dart';
 
 /// [PlaybackEngine] en memoria para tests: simula el estado sin reproducir.
@@ -26,12 +27,25 @@ class FakePlaybackEngine implements PlaybackEngine {
   /// Si no es `null`, el próximo [open] termina en error con este mensaje.
   String? openError;
 
+  /// Si es `true`, [open] deja el video cargando para siempre (sin duración
+  /// ni primer cuadro), como una fuente que no responde.
+  bool stallOnOpen = false;
+
   /// Última fuente que se abrió.
   PlaybackSource? lastSource;
 
+  /// Cuántas veces se llamó a [open].
+  int openCount = 0;
+
+  /// Último retraso de subtítulos pedido con [setSubtitleDelay].
+  Duration subtitleDelay = Duration.zero;
+
   PlaybackState _state = const PlaybackState();
+  PlaybackStats _stats = PlaybackStats.empty;
   final StreamController<PlaybackState> _controller =
       StreamController<PlaybackState>.broadcast();
+  final StreamController<PlaybackStats> _statsController =
+      StreamController<PlaybackStats>.broadcast();
   bool _disposed = false;
   int _externalCount = 0;
 
@@ -40,6 +54,12 @@ class FakePlaybackEngine implements PlaybackEngine {
 
   @override
   Stream<PlaybackState> get stream => _controller.stream;
+
+  @override
+  PlaybackStats get stats => _stats;
+
+  @override
+  Stream<PlaybackStats> get statsStream => _statsController.stream;
 
   void _emit(PlaybackState next) {
     if (_disposed) return;
@@ -51,7 +71,19 @@ class FakePlaybackEngine implements PlaybackEngine {
   Future<void> open(PlaybackSource source) async {
     if (_disposed) return;
     lastSource = source;
+    openCount++;
     _externalCount = 0;
+    subtitleDelay = Duration.zero;
+    if (stallOnOpen) {
+      _emit(
+        PlaybackState(
+          buffering: true,
+          position: source.startPosition,
+          volume: _state.volume,
+        ),
+      );
+      return;
+    }
     final error = openError;
     if (error != null) {
       _emit(
@@ -126,6 +158,18 @@ class FakePlaybackEngine implements PlaybackEngine {
     );
   }
 
+  @override
+  Future<void> setSubtitleDelay(Duration delay) async {
+    subtitleDelay = delay;
+  }
+
+  /// Simula que el reproductor informa [stats].
+  void emitStats(PlaybackStats stats) {
+    if (_disposed) return;
+    _stats = stats;
+    _statsController.add(stats);
+  }
+
   /// Avanza la posición [by]; al llegar al final marca `completed` y pausa.
   void tick(Duration by) {
     final end = _state.duration;
@@ -149,5 +193,6 @@ class FakePlaybackEngine implements PlaybackEngine {
     if (_disposed) return;
     _disposed = true;
     await _controller.close();
+    await _statsController.close();
   }
 }

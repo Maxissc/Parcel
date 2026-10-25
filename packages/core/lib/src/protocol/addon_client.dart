@@ -8,6 +8,7 @@ import '../models/addon_stream.dart';
 import '../models/installed_addon.dart';
 import '../models/meta.dart';
 import '../models/subtitle.dart';
+import 'abortable_http.dart';
 import 'addon_exception.dart';
 import 'manifest_url.dart';
 import 'routes.dart';
@@ -15,21 +16,26 @@ import 'routes.dart';
 /// Cliente del protocolo de addons de Stremio.
 ///
 /// Todas las fallas salen como [AddonException]. No aplica timeout propio: lo
-/// pone quien lo usa (el agregador, el repositorio).
+/// pone quien lo usa (el agregador, el repositorio), que pasa un
+/// `abortTrigger` para cortar el pedido de verdad al vencer el plazo. Si se
+/// aborta, la falla es [AddonFailureReason.timeout].
 class AddonClient {
   AddonClient(http.Client httpClient) : _http = httpClient;
 
   final http.Client _http;
 
   /// Baja el manifest de [url] (se normaliza antes) y arma el addon.
-  Future<InstalledAddon> fetchManifest(String url) async {
+  Future<InstalledAddon> fetchManifest(
+    String url, {
+    Future<void>? abortTrigger,
+  }) async {
     final String transportUrl;
     try {
       transportUrl = normalizeManifestUrl(url);
     } on FormatException catch (e) {
       throw AddonException(AddonFailureReason.invalidUrl, e.message, url: url);
     }
-    final json = await _getJson(transportUrl);
+    final json = await _getJson(transportUrl, abortTrigger);
     try {
       return InstalledAddon(
         transportUrl: transportUrl,
@@ -50,16 +56,22 @@ class AddonClient {
     String type,
     String id, {
     Map<String, String> extra = const {},
+    Future<void>? abortTrigger,
   }) async {
     final url = _url(addon, 'catalog', type, id, extra);
-    final json = await _getJson(url);
+    final json = await _getJson(url, abortTrigger);
     return parseMetas(_list(json, 'metas', url));
   }
 
   /// Metadatos completos (`/meta/{type}/{id}.json`).
-  Future<Meta> meta(InstalledAddon addon, String type, String id) async {
+  Future<Meta> meta(
+    InstalledAddon addon,
+    String type,
+    String id, {
+    Future<void>? abortTrigger,
+  }) async {
     final url = _url(addon, 'meta', type, id, const {});
-    final json = await _getJson(url);
+    final json = await _getJson(url, abortTrigger);
     final raw = json['meta'];
     if (raw is! Map<String, dynamic>) {
       throw AddonException(
@@ -85,9 +97,10 @@ class AddonClient {
     String type,
     String id, {
     Map<String, String> extra = const {},
+    Future<void>? abortTrigger,
   }) async {
     final url = _url(addon, 'stream', type, id, extra);
-    final json = await _getJson(url);
+    final json = await _getJson(url, abortTrigger);
     return parseStreams(_list(json, 'streams', url));
   }
 
@@ -98,9 +111,10 @@ class AddonClient {
     String type,
     String id, {
     Map<String, String> extra = const {},
+    Future<void>? abortTrigger,
   }) async {
     final url = _url(addon, 'subtitles', type, id, extra);
-    final json = await _getJson(url);
+    final json = await _getJson(url, abortTrigger);
     return parseSubtitles(_list(json, 'subtitles', url));
   }
 
@@ -131,14 +145,27 @@ class AddonClient {
     return value;
   }
 
-  Future<Map<String, dynamic>> _getJson(String url) async {
+  Future<Map<String, dynamic>> _getJson(
+    String url,
+    Future<void>? abortTrigger,
+  ) async {
     final http.Response response;
     try {
-      response = await _http.get(Uri.parse(url));
+      response = await getAbortable(
+        _http,
+        Uri.parse(url),
+        abortTrigger: abortTrigger,
+      );
     } on TimeoutException {
       throw AddonException(
         AddonFailureReason.timeout,
         'Tiempo agotado',
+        url: url,
+      );
+    } on http.RequestAbortedException {
+      throw AddonException(
+        AddonFailureReason.timeout,
+        'Pedido cancelado',
         url: url,
       );
     } on Exception {
