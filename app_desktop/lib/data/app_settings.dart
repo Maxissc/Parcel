@@ -4,6 +4,8 @@ import 'dart:io';
 
 import 'package:parcel_core/parcel_core.dart' show QualityPreference;
 
+import 'home_layout.dart';
+
 /// Código del audio «Original»: el idioma en que se hizo el contenido.
 const String originalAudioCode = 'original';
 
@@ -31,8 +33,9 @@ const List<({String code, String label})> subtitleLanguageOptions = [
 ];
 
 /// Versión del formato de `settings.json`. La 2 distingue «sin preferencia»
-/// (elegido) de «nunca elegí»: en la 1 los dos eran `null`.
-const int settingsVersion = 2;
+/// (elegido) de «nunca elegí»: en la 1 los dos eran `null`. La 3 suma el orden
+/// de la home y «Pasar solo al siguiente episodio».
+const int settingsVersion = 3;
 
 const Object _keep = Object();
 
@@ -46,6 +49,8 @@ class AppSettings {
     this.quality = QualityPreference.p1080,
     this.openFullScreen = true,
     this.tmdbApiKey,
+    this.homeLayout = const HomeLayout(),
+    this.autoPlayNext = true,
   });
 
   /// El usuario ya terminó el asistente de migración.
@@ -71,6 +76,12 @@ class AppSettings {
   /// Key de TMDB (opcional); `null` si no puso ninguna.
   final String? tmdbApiKey;
 
+  /// Orden de las filas de la home y cuáles están ocultas.
+  final HomeLayout homeLayout;
+
+  /// Al terminar un episodio, pasar solo al siguiente (con cuenta regresiva).
+  final bool autoPlayNext;
+
   /// Copia con cambios. Los idiomas y la key aceptan `null` para quitarlos.
   AppSettings copyWith({
     bool? onboardingCompleted,
@@ -80,6 +91,8 @@ class AppSettings {
     QualityPreference? quality,
     bool? openFullScreen,
     Object? tmdbApiKey = _keep,
+    HomeLayout? homeLayout,
+    bool? autoPlayNext,
   }) {
     return AppSettings(
       onboardingCompleted: onboardingCompleted ?? this.onboardingCompleted,
@@ -95,6 +108,8 @@ class AppSettings {
       tmdbApiKey: identical(tmdbApiKey, _keep)
           ? this.tmdbApiKey
           : tmdbApiKey as String?,
+      homeLayout: homeLayout ?? this.homeLayout,
+      autoPlayNext: autoPlayNext ?? this.autoPlayNext,
     );
   }
 
@@ -115,6 +130,16 @@ class AppSettings {
 
     final tmdb = json['tmdbApiKey'];
     final quality = json['quality'];
+    List<String> strings(String key) {
+      final value = json[key];
+      return value is List
+          ? [
+              for (final e in value)
+                if (e is String) e,
+            ]
+          : const [];
+    }
+
     return AppSettings(
       onboardingCompleted: json['onboardingCompleted'] == true,
       audioLanguage: language('audioLanguage', originalAudioCode),
@@ -125,6 +150,11 @@ class AppSettings {
           QualityPreference.p1080,
       openFullScreen: json['openFullScreen'] != false,
       tmdbApiKey: tmdb is String && tmdb.trim().isNotEmpty ? tmdb.trim() : null,
+      homeLayout: HomeLayout(
+        order: strings('homeOrder'),
+        hidden: strings('homeHidden').toSet(),
+      ),
+      autoPlayNext: json['autoPlayNext'] != false,
     );
   }
 
@@ -137,6 +167,9 @@ class AppSettings {
     'quality': quality.name,
     'openFullScreen': openFullScreen,
     'tmdbApiKey': tmdbApiKey,
+    'homeOrder': homeLayout.order,
+    'homeHidden': homeLayout.hidden.toList()..sort(),
+    'autoPlayNext': autoPlayNext,
   };
 
   @override
@@ -148,7 +181,9 @@ class AppSettings {
       other.autoSelectSource == autoSelectSource &&
       other.quality == quality &&
       other.openFullScreen == openFullScreen &&
-      other.tmdbApiKey == tmdbApiKey;
+      other.tmdbApiKey == tmdbApiKey &&
+      other.homeLayout == homeLayout &&
+      other.autoPlayNext == autoPlayNext;
 
   @override
   int get hashCode => Object.hash(
@@ -159,6 +194,8 @@ class AppSettings {
     quality,
     openFullScreen,
     tmdbApiKey,
+    homeLayout,
+    autoPlayNext,
   );
 
   /// No incluye la key de TMDB.

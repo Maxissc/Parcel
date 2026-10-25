@@ -280,6 +280,7 @@ class _PlayerRouteState extends ConsumerState<PlayerRoute> {
       duration: duration,
       name: item.meta.name,
       poster: item.meta.poster,
+      thumbnail: item.video?.thumbnail ?? item.meta.background,
       updatedAt: DateTime.now(),
     );
     unawaited(_write(progress));
