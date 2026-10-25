@@ -3,7 +3,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:parcel_core/parcel_core.dart';
+import 'package:parcel_desktop/data/platform.dart';
 import 'package:parcel_desktop/features/player/player_screen.dart';
+
+import 'support/fakes.dart';
 
 const _audioEs = AudioTrack(id: '1', language: 'spa', title: 'Castellano');
 const _audioEn = AudioTrack(id: '2', language: 'eng', title: 'Original');
@@ -19,6 +22,7 @@ Future<void> _pump(
   WidgetTester tester,
   FakePlaybackEngine engine, {
   List<Subtitle> subtitles = const [],
+  WindowService? window,
 }) async {
   await tester.pumpWidget(
     MaterialApp(
@@ -26,6 +30,7 @@ Future<void> _pump(
         engine: engine,
         source: PlaybackSource(url: 'http://x/video.mkv'),
         subtitles: subtitles,
+        window: window,
         title: 'video.mkv',
       ),
     ),
@@ -58,6 +63,35 @@ void main() {
     expect(find.text('video.mkv'), findsOneWidget);
     expect(find.text('0:00'), findsOneWidget);
     expect(find.text('2:00'), findsOneWidget);
+  });
+
+  testWidgets('las opciones van contra el borde derecho y los chips a la '
+      'izquierda, también a 960 px', (tester) async {
+    tester.view.physicalSize = const Size(960, 600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final engine = _engine();
+    await _pump(tester, engine, window: FakeWindowService());
+    engine.emitStats(
+      const PlaybackStats(videoHeight: 2160, audioChannels: 6, fps: 24),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    // El último botón termina donde termina el relleno de la barra (16 px).
+    expect(
+      tester.getTopRight(find.byKey(const Key('player-fullscreen'))).dx,
+      closeTo(944, 1),
+    );
+    final chips = tester.getRect(find.byKey(const Key('player-stats-chips')));
+    final volume = tester.getRect(find.byKey(const Key('player-volume')));
+    expect(chips.left, greaterThanOrEqualTo(volume.right));
+    expect(chips.right, lessThan(500));
+    expect(
+      tester.getTopLeft(find.byKey(const Key('player-play'))).dx,
+      lessThan(60),
+    );
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('play/pausa cambia el ícono', (tester) async {

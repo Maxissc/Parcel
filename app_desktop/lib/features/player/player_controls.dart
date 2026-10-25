@@ -262,17 +262,22 @@ class _BottomBar extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 12),
-                  if (chips.isNotEmpty)
-                    Flexible(
-                      child: Text(
-                        chips.join(' · '),
-                        key: const Key('player-stats-chips'),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.labelLarge,
-                      ),
-                    ),
-                  const Spacer(),
+                  // Todo el espacio que sobra es de este tramo: los chips
+                  // quedan a la izquierda y las opciones contra el borde.
+                  Expanded(
+                    child: chips.isEmpty
+                        ? const SizedBox.shrink()
+                        : Align(
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              chips.join(' · '),
+                              key: const Key('player-stats-chips'),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.labelLarge,
+                            ),
+                          ),
+                  ),
                   if (parent.sourceMenu != null)
                     _SourceMenuButton(
                       menu: parent.sourceMenu!,
