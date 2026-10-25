@@ -17,6 +17,7 @@ import '../../playback/playback_errors.dart';
 import '../streams/streams_args.dart';
 import 'addon_subtitles.dart';
 import 'play_args.dart';
+import 'loading_view.dart';
 import 'play_item.dart';
 import 'player_info.dart';
 import 'player_screen.dart';
@@ -280,6 +281,7 @@ class _PlayerRouteState extends ConsumerState<PlayerRoute> {
       duration: duration,
       name: item.meta.name,
       poster: item.meta.poster,
+      thumbnail: item.video?.thumbnail ?? item.meta.background,
       updatedAt: DateTime.now(),
     );
     unawaited(_write(progress));
@@ -380,6 +382,7 @@ class _PlayerRouteState extends ConsumerState<PlayerRoute> {
         startPosition: start,
       ),
       title: item?.title ?? args.title,
+      loadingArt: item == null ? null : LoadingArt.fromMeta(item.meta),
       subtitles: [
         if (args.subtitleUrl != null)
           Subtitle(
@@ -395,6 +398,7 @@ class _PlayerRouteState extends ConsumerState<PlayerRoute> {
       window: _window,
       onProgress: item == null ? null : _saveProgress,
       next: _nextEpisode(),
+      autoNext: ref.watch(appSettingsProvider.select((s) => s.autoPlayNext)),
       info: _info(),
       sourceMenu: widget.sourceMenu,
       onOpenFailed: widget.onOpenFailed,

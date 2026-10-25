@@ -1,6 +1,7 @@
 // Addon Stremio mínimo SOLO para desarrollo: sirve un catálogo, metas y streams
 // que apuntan a un video local. Uso: dart tool/dev_addon.dart [--port 7000]
-// [--media samples/sample.mkv] [--broken-stream 1] y después instalar
+// [--media samples/sample.mkv] [--broken-stream 1] [--torrentio 1] y después
+// instalar
 // http://127.0.0.1:7000/manifest.json
 import 'dart:async';
 import 'dart:convert';
@@ -10,6 +11,7 @@ Future<void> main(List<String> args) async {
   final options = _parse(args);
   final port = int.tryParse(options['port'] ?? '') ?? 7000;
   _brokenStreamFirst = options['broken-stream'] == '1';
+  _torrentioNames = options['torrentio'] == '1';
   final media = File(options['media'] ?? _defaultMedia());
   if (!media.existsSync()) {
     stderr.writeln(
@@ -122,7 +124,50 @@ Map<String, dynamic> _series() => {
 /// ningún mensaje ni log cuando el video no abre.
 bool _brokenStreamFirst = false;
 
+/// Con `--torrentio 1`, los streams llevan nombres largos como los de
+/// Torrentio (con 💾, 👤 y la etiqueta del debrid): sirve para ver cómo se
+/// leen en el panel «Fuente».
+bool _torrentioNames = false;
+
+const _torrentioSamples = [
+  (
+    'Torrentio\n[RD+] 4k DV | HDR',
+    'Michael.2026.2160p.UHD.BluRay.REMUX.DV.HDR10Plus.HEVC.TrueHD.7.1.Atmos-'
+        'FraMeSToR.mkv\n👤 83 💾 83.4 GB ⚙️ ThePirateBay',
+  ),
+  (
+    'Torrentio\n[RD+] 4k HDR',
+    'Michael (2026) [2160p] [4K] [WEB] [5.1] [YTS.MX] - Versión extendida del '
+        'director con comentarios\n👤 41 💾 22.7 GB ⚙️ YTS',
+  ),
+  (
+    'Torrentio\n[RD+] 1080p',
+    'Michael.2026.1080p.WEB-DL.DDP5.1.Atmos.H.264-GROUP.mkv\n'
+        '👤 120 💾 6.2 GB ⚙️ 1337x',
+  ),
+  (
+    'Torrentio\n[RD download] 1080p',
+    'Michael.2026.1080p.BluRay.x264.DTS-HD.MA.5.1-WiKi.mkv\n'
+        '👤 9 💾 14.1 GB ⚙️ RARBG',
+  ),
+  (
+    'Torrentio\n[RD+] 720p',
+    'Michael.2026.720p.HDRip.XviD.AC3-EVO\n👤 2 💾 1.4 GB ⚙️ TorrentGalaxy',
+  ),
+];
+
+List<Map<String, dynamic>> _torrentioStreams(String base) => [
+  for (final (name, title) in _torrentioSamples)
+    {
+      'name': name,
+      'title': title,
+      'url': '$base/media',
+      'behaviorHints': {'bingeGroup': 'torrentio-${name.hashCode}'},
+    },
+];
+
 List<Map<String, dynamic>> _streams(String base) => [
+  if (_torrentioNames) ..._torrentioStreams(base),
   if (_brokenStreamFirst)
     {
       'name': 'Parcel Dev\nRoto',

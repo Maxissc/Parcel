@@ -1,28 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:parcel_core/parcel_core.dart';
 
-import '../../shared/stream_labels.dart';
 import 'player_info.dart';
+import 'player_panels.dart';
 import 'source_menu.dart';
-import 'subtitle_catalog.dart';
-import 'track_labels.dart';
-
-/// Lo que el menú de subtítulos necesita del catálogo.
-class SubtitleMenuData {
-  const SubtitleMenuData({
-    required this.entries,
-    required this.alignmentOf,
-    required this.isSelected,
-  });
-
-  /// Arma las opciones ordenadas (embebidas y de addons). Se llama al abrir el
-  /// menú, no en cada cuadro.
-  final List<SubtitleEntry> Function() entries;
-  final SubtitleAlignment? Function(SubtitleEntry entry) alignmentOf;
-
-  /// Si [entry] es la pista que suena ahora.
-  final bool Function(SubtitleEntry entry) isSelected;
-}
 
 /// Barras de controles que se dibujan encima del video. No guarda estado del
 /// reproductor: todo entra por parámetros y sale por callbacks.
@@ -39,13 +20,8 @@ class PlayerControls extends StatelessWidget {
     required this.onSeekEnd,
     required this.onVolumeChanged,
     required this.onToggleMute,
-    required this.onSelectAudio,
-    required this.onSelectSubtitle,
-    required this.onMenuOpened,
-    required this.onMenuClosed,
-    this.subtitles,
-    this.onSelectSubtitleEntry,
-    this.onOpenSync,
+    required this.onOpenPanel,
+    this.openPanel,
     this.sourceMenu,
     this.atmos = false,
     this.onToggleInfo,
@@ -57,13 +33,12 @@ class PlayerControls extends StatelessWidget {
   final PlaybackStats stats;
   final String? title;
 
-  /// Datos del menú de subtítulos; con `null` el menú lista las pistas del
-  /// motor, sin más.
-  final SubtitleMenuData? subtitles;
-  final ValueChanged<SubtitleEntry>? onSelectSubtitleEntry;
+  /// Abre el panel lateral de Fuente, Audio o Subtítulos (o lo cierra si ya
+  /// es el que está abierto).
+  final ValueChanged<PlayerPanel> onOpenPanel;
 
-  /// Abre el asistente de sincronización; con `null` no se ofrece.
-  final VoidCallback? onOpenSync;
+  /// El panel lateral que está abierto, si hay uno (marca su botón).
+  final PlayerPanel? openPanel;
 
   /// Menú «Fuente»; con `null` no se muestra.
   final SourceMenu? sourceMenu;
@@ -86,12 +61,6 @@ class PlayerControls extends StatelessWidget {
   final ValueChanged<double> onSeekEnd;
   final ValueChanged<double> onVolumeChanged;
   final VoidCallback onToggleMute;
-  final ValueChanged<AudioTrack> onSelectAudio;
-
-  /// `null` desactiva los subtítulos.
-  final ValueChanged<SubtitleTrack?> onSelectSubtitle;
-  final VoidCallback onMenuOpened;
-  final VoidCallback onMenuClosed;
 
   @override
   Widget build(BuildContext context) {
@@ -256,38 +225,45 @@ class _BottomBar extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 12),
-                  if (chips.isNotEmpty)
-                    Flexible(
-                      child: Text(
-                        chips.join(' · '),
-                        key: const Key('player-stats-chips'),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.labelLarge,
-                      ),
-                    ),
-                  const Spacer(),
-                  if (parent.sourceMenu != null)
-                    _SourceMenuButton(
-                      menu: parent.sourceMenu!,
-                      position: state.position,
-                      onOpened: parent.onMenuOpened,
-                      onClosed: parent.onMenuClosed,
-                    ),
-                  _AudioMenu(
-                    state: state,
-                    onSelected: parent.onSelectAudio,
-                    onOpened: parent.onMenuOpened,
-                    onClosed: parent.onMenuClosed,
+                  // Todo el espacio que sobra es de este tramo: los chips
+                  // quedan a la izquierda y las opciones contra el borde.
+                  Expanded(
+                    child: chips.isEmpty
+                        ? const SizedBox.shrink()
+                        : Align(
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              chips.join(' · '),
+                              key: const Key('player-stats-chips'),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.labelLarge,
+                            ),
+                          ),
                   ),
-                  _SubtitleMenu(
-                    state: state,
-                    data: parent.subtitles,
-                    onSelected: parent.onSelectSubtitle,
-                    onSelectedEntry: parent.onSelectSubtitleEntry,
-                    onOpenSync: parent.onOpenSync,
-                    onOpened: parent.onMenuOpened,
-                    onClosed: parent.onMenuClosed,
+                  if (parent.sourceMenu != null)
+                    _PanelButton(
+                      key: const Key('player-source-menu'),
+                      tooltip: 'Fuente',
+                      icon: Icons.swap_horiz,
+                      active: parent.openPanel == PlayerPanel.source,
+                      onPressed: () => parent.onOpenPanel(PlayerPanel.source),
+                    ),
+                  _PanelButton(
+                    key: const Key('player-audio-menu'),
+                    tooltip: 'Audio',
+                    icon: Icons.audiotrack,
+                    active: parent.openPanel == PlayerPanel.audio,
+                    onPressed: state.audioTracks.isEmpty
+                        ? null
+                        : () => parent.onOpenPanel(PlayerPanel.audio),
+                  ),
+                  _PanelButton(
+                    key: const Key('player-subtitle-menu'),
+                    tooltip: 'Subtítulos',
+                    icon: Icons.subtitles,
+                    active: parent.openPanel == PlayerPanel.subtitles,
+                    onPressed: () => parent.onOpenPanel(PlayerPanel.subtitles),
                   ),
                   if (parent.onToggleInfo != null)
                     IconButton(
@@ -380,232 +356,30 @@ class _SeekBar extends StatelessWidget {
   }
 }
 
-class _SourceMenuButton extends StatelessWidget {
-  const _SourceMenuButton({
-    required this.menu,
-    required this.position,
-    required this.onOpened,
-    required this.onClosed,
+/// Botón que abre un panel lateral; marcado si ese panel es el que está
+/// abierto.
+class _PanelButton extends StatelessWidget {
+  const _PanelButton({
+    super.key,
+    required this.tooltip,
+    required this.icon,
+    required this.active,
+    required this.onPressed,
   });
 
-  final SourceMenu menu;
-  final Duration position;
-  final VoidCallback onOpened;
-  final VoidCallback onClosed;
+  final String tooltip;
+  final IconData icon;
+  final bool active;
+  final VoidCallback? onPressed;
 
   @override
   Widget build(BuildContext context) {
-    return PopupMenuButton<int>(
-      key: const Key('player-source-menu'),
-      tooltip: 'Fuente',
-      icon: const Icon(Icons.swap_horiz),
-      onOpened: onOpened,
-      onCanceled: onClosed,
-      onSelected: (i) {
-        onClosed();
-        if (i != menu.current) menu.onPick(i, position);
-      },
-      itemBuilder: (_) => [
-        for (var i = 0; i < menu.candidates.length; i++)
-          CheckedPopupMenuItem<int>(
-            value: i,
-            checked: i == menu.current,
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 420),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Flexible(
-                    child: Text(
-                      menu.candidates[i].label,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  if (!menu.candidates[i].isReady) ...[
-                    const SizedBox(width: 8),
-                    const Tooltip(
-                      message: uncachedTooltip,
-                      child: Chip(
-                        label: Text(uncachedChip),
-                        visualDensity: VisualDensity.compact,
-                        padding: EdgeInsets.zero,
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-          ),
-      ],
-    );
-  }
-}
-
-class _AudioMenu extends StatelessWidget {
-  const _AudioMenu({
-    required this.state,
-    required this.onSelected,
-    required this.onOpened,
-    required this.onClosed,
-  });
-
-  final PlaybackState state;
-  final ValueChanged<AudioTrack> onSelected;
-  final VoidCallback onOpened;
-  final VoidCallback onClosed;
-
-  @override
-  Widget build(BuildContext context) {
-    final tracks = state.audioTracks;
-    return PopupMenuButton<AudioTrack>(
-      key: const Key('player-audio-menu'),
-      tooltip: 'Audio',
-      icon: const Icon(Icons.audiotrack),
-      enabled: tracks.isNotEmpty,
-      onOpened: onOpened,
-      onCanceled: onClosed,
-      onSelected: (t) {
-        onSelected(t);
-        onClosed();
-      },
-      itemBuilder: (_) => [
-        for (var i = 0; i < tracks.length; i++)
-          CheckedPopupMenuItem<AudioTrack>(
-            value: tracks[i],
-            checked: tracks[i] == state.selectedAudio,
-            child: Text(trackLabel(tracks[i], i)),
-          ),
-      ],
-    );
-  }
-}
-
-class _SubtitleMenu extends StatelessWidget {
-  const _SubtitleMenu({
-    required this.state,
-    required this.data,
-    required this.onSelected,
-    required this.onSelectedEntry,
-    required this.onOpenSync,
-    required this.onOpened,
-    required this.onClosed,
-  });
-
-  final PlaybackState state;
-  final SubtitleMenuData? data;
-  final ValueChanged<SubtitleTrack?> onSelected;
-  final ValueChanged<SubtitleEntry>? onSelectedEntry;
-  final VoidCallback? onOpenSync;
-  final VoidCallback onOpened;
-  final VoidCallback onClosed;
-
-  // Valores de los ítems que no son una pista: un popup no informa un `null`.
-  static const _off = 'off';
-  static const _sync = 'sync';
-
-  @override
-  Widget build(BuildContext context) {
-    final data = this.data;
-    final theme = Theme.of(context);
-    return PopupMenuButton<Object>(
-      key: const Key('player-subtitle-menu'),
-      tooltip: 'Subtítulos',
-      icon: const Icon(Icons.subtitles),
-      onOpened: onOpened,
-      onCanceled: onClosed,
-      onSelected: (value) {
-        if (value == _off) {
-          onSelected(null);
-        } else if (value == _sync) {
-          onOpenSync?.call();
-        } else if (value is SubtitleEntry) {
-          onSelectedEntry?.call(value);
-        } else if (value is SubtitleTrack) {
-          onSelected(value);
-        }
-        onClosed();
-      },
-      itemBuilder: (_) {
-        final items = <PopupMenuEntry<Object>>[
-          CheckedPopupMenuItem<Object>(
-            value: _off,
-            checked: state.selectedSubtitle == null,
-            child: const Text('Desactivados'),
-          ),
-        ];
-        if (data == null) {
-          final tracks = state.subtitleTracks;
-          for (var i = 0; i < tracks.length; i++) {
-            items.add(
-              CheckedPopupMenuItem<Object>(
-                value: tracks[i],
-                checked: tracks[i] == state.selectedSubtitle,
-                child: Text(
-                  tracks[i].isExternal
-                      ? '${trackLabel(tracks[i], i)} · externo'
-                      : trackLabel(tracks[i], i),
-                ),
-              ),
-            );
-          }
-        } else {
-          var moreLanguages = false;
-          for (final entry in data.entries()) {
-            if (entry.language == SubtitleLanguage.other && !moreLanguages) {
-              moreLanguages = true;
-              items.add(
-                PopupMenuItem<Object>(
-                  enabled: false,
-                  height: 32,
-                  child: Text('Más idiomas', style: theme.textTheme.labelLarge),
-                ),
-              );
-            }
-            final tag = alignmentLabel(data.alignmentOf(entry));
-            items.add(
-              CheckedPopupMenuItem<Object>(
-                value: entry,
-                checked: data.isSelected(entry),
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 380),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        entry.external
-                            ? entry.label
-                            : '${entry.label} · del video',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      if (tag != null)
-                        Text(
-                          tag,
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: theme.colorScheme.onSurfaceVariant,
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-              ),
-            );
-          }
-        }
-        if (onOpenSync != null) {
-          items
-            ..add(const PopupMenuDivider())
-            ..add(
-              const PopupMenuItem<Object>(
-                value: _sync,
-                child: Text('Sincronizar subtítulos… (S)'),
-              ),
-            );
-        }
-        return items;
-      },
+    return IconButton(
+      tooltip: tooltip,
+      icon: Icon(icon),
+      isSelected: active,
+      selectedIcon: Icon(icon, color: Theme.of(context).colorScheme.primary),
+      onPressed: onPressed,
     );
   }
 }

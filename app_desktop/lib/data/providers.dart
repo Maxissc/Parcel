@@ -7,6 +7,7 @@ import 'package:parcel_core/parcel_core.dart';
 
 import 'app_data.dart';
 import 'app_settings.dart';
+import 'home_layout.dart';
 
 // --- Red ---------------------------------------------------------------------
 
@@ -186,6 +187,12 @@ class AppSettingsNotifier extends Notifier<AppSettings> {
 
   Future<void> setOpenFullScreen(bool value) =>
       _update(state.copyWith(openFullScreen: value));
+
+  Future<void> setAutoPlayNext(bool value) =>
+      _update(state.copyWith(autoPlayNext: value));
+
+  Future<void> setHomeLayout(HomeLayout layout) =>
+      _update(state.copyWith(homeLayout: layout));
 
   /// Una key vacía la quita.
   Future<void> setTmdbApiKey(String? key) {

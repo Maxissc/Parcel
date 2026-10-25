@@ -11,6 +11,7 @@ class PlaybackProgress {
     required this.name,
     required this.updatedAt,
     this.poster,
+    this.thumbnail,
   });
 
   /// Tipo de contenido (`movie`, `series`...).
@@ -27,6 +28,10 @@ class PlaybackProgress {
   /// Nombre para mostrar en la lista.
   final String name;
   final String? poster;
+
+  /// Imagen apaisada para «Seguir viendo»: la miniatura del episodio o el
+  /// fondo del contenido. Los archivos viejos no la traen.
+  final String? thumbnail;
   final DateTime updatedAt;
 
   /// Fracción vista, de 0 a 1 (0 si no se conoce la [duration]).
@@ -66,6 +71,7 @@ class PlaybackProgress {
       duration: Duration(milliseconds: durationMs),
       name: asString(json['name']) ?? '',
       poster: asNonEmptyString(json['poster']),
+      thumbnail: asNonEmptyString(json['thumbnail']),
       updatedAt: updatedAt,
     );
   }
@@ -78,6 +84,7 @@ class PlaybackProgress {
     'durationMs': duration.inMilliseconds,
     'name': name,
     'poster': ?poster,
+    'thumbnail': ?thumbnail,
     'updatedAt': updatedAt.toUtc().toIso8601String(),
   };
 
@@ -91,6 +98,7 @@ class PlaybackProgress {
       other.duration == duration &&
       other.name == name &&
       other.poster == poster &&
+      other.thumbnail == thumbnail &&
       other.updatedAt == updatedAt;
 
   @override
@@ -102,6 +110,7 @@ class PlaybackProgress {
     duration,
     name,
     poster,
+    thumbnail,
     updatedAt,
   );
 

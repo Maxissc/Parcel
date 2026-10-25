@@ -36,6 +36,14 @@ import '../../playback/playback_errors.dart';
 /// - `PARCEL_DIAG_AUTO_NEXT=1`: al terminar un episodio abre solo el que sigue
 ///   (como el botón «Ver siguiente episodio») y anota en el log si la ventana
 ///   sigue en pantalla completa.
+/// - `PARCEL_DIAG_HIDE_ROW`: número de la fila de la home (desde 0) a ocultar;
+///   queda guardado en los ajustes (para comprobar que persiste al reiniciar).
+/// - `PARCEL_DIAG_SEE_ALL=1`: abre «Ver todo» de la primera fila de la home,
+///   pide una segunda página con `skip` y filtra por el primer género, y
+///   cuenta lo que trajo cada pedido.
+/// - `PARCEL_DIAG_FRAMES=1`: cada 5 s anota cuántos cuadros se dibujaron, el
+///   tiempo medio y el peor de armado y de rasterizado, y cuántos pasaron de
+///   16,7 ms (para medir la fluidez de las animaciones).
 /// - `PARCEL_DIAG_MIN_PROBE_BYTES`: tamaño mínimo con el que la prueba de
 ///   fuentes acepta un video (por defecto 20 MB; una muestra chica necesita 0).
 class DiagnosticsConfig {
@@ -54,6 +62,9 @@ class DiagnosticsConfig {
     this.probeMinBytes,
     this.cycleFullscreen = false,
     this.autoNext = false,
+    this.hideRow,
+    this.seeAll = false,
+    this.frameStats = false,
   });
 
   final String? url;
@@ -81,6 +92,11 @@ class DiagnosticsConfig {
   final bool cycleFullscreen;
   final bool autoNext;
 
+  /// Fila de la home a ocultar; `null` si no hay.
+  final int? hideRow;
+  final bool seeAll;
+  final bool frameStats;
+
   /// `null` si no es debug o no está `PARCEL_DIAG`.
   static DiagnosticsConfig? fromEnvironment([Map<String, String>? env]) {
     if (!kDebugMode) return null;
@@ -107,6 +123,9 @@ class DiagnosticsConfig {
       probeMinBytes: int.tryParse(e['PARCEL_DIAG_MIN_PROBE_BYTES'] ?? ''),
       cycleFullscreen: e['PARCEL_DIAG_CYCLE_FULLSCREEN'] == '1',
       autoNext: e['PARCEL_DIAG_AUTO_NEXT'] == '1',
+      hideRow: int.tryParse(e['PARCEL_DIAG_HIDE_ROW'] ?? ''),
+      seeAll: e['PARCEL_DIAG_SEE_ALL'] == '1',
+      frameStats: e['PARCEL_DIAG_FRAMES'] == '1',
     );
   }
 }
@@ -246,4 +265,29 @@ class PlaybackDiagnostics {
     await Future<void>.delayed(step);
     _write('RECORRIDO terminado');
   }
+}
+
+/// Resume cuadros dibujados en [elapsed]: cuántos, armado y raster medios y
+/// peores, y cuántos fueron lentos. Un cuadro es lento si su armado o su
+/// raster pasan de 16,7 ms (el límite de 60 Hz de cada etapa), no si la suma
+/// de los dos pasa.
+String frameSummary(
+  List<({Duration build, Duration raster})> frames,
+  Duration elapsed,
+) {
+  final build = [for (final f in frames) f.build.inMicroseconds];
+  final raster = [for (final f in frames) f.raster.inMicroseconds];
+  String ms(num micros) => (micros / 1000).toStringAsFixed(1);
+  num avg(List<int> v) => v.reduce((a, b) => a + b) / v.length;
+  int worst(List<int> v) => v.reduce((a, b) => a > b ? a : b);
+  const limit = 16700;
+  final slow = [
+    for (final f in frames)
+      if (f.build.inMicroseconds > limit || f.raster.inMicroseconds > limit) f,
+  ].length;
+  final seconds = (elapsed.inMilliseconds / 1000).toStringAsFixed(1);
+  return 'cuadros: ${frames.length} en $seconds s; armado medio '
+      '${ms(avg(build))} ms (peor ${ms(worst(build))}); raster medio '
+      '${ms(avg(raster))} ms (peor ${ms(worst(raster))}); '
+      'más de 16,7 ms: $slow';
 }

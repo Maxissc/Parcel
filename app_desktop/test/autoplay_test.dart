@@ -11,6 +11,7 @@ import 'package:parcel_desktop/app/diagnostics/diag_log.dart';
 import 'package:parcel_desktop/app/router.dart';
 import 'package:parcel_desktop/data/platform.dart';
 import 'package:parcel_desktop/features/player/play_item.dart';
+import 'package:parcel_desktop/features/player/side_panel.dart';
 import 'package:parcel_desktop/features/player/play_args.dart';
 import 'package:parcel_desktop/features/player/player_screen.dart';
 import 'package:parcel_desktop/features/streams/streams_screen.dart';
@@ -113,6 +114,30 @@ void main() {
     await pumpIo(tester, ticks: 4);
   });
 
+  testWidgets('al arrancar con autoplay la lista de fuentes no se ve ni un '
+      'cuadro', (tester) async {
+    world.routes[_streamsKey] = {
+      'streams': [_stream('Uno 1080p', 'a.mkv'), _stream('Dos 720p', 'b.mkv')],
+    };
+    await play(tester, [fake()]);
+
+    // Desde el primer cuadro hasta que abre el reproductor.
+    for (var i = 0; i < 60; i++) {
+      expect(
+        find.byType(StreamsScreen),
+        findsNothing,
+        reason: 'la lista asomó en el cuadro $i',
+      );
+      expect(find.text('Uno 1080p'), findsNothing);
+      await tester.pump(const Duration(milliseconds: 16));
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 2)),
+      );
+    }
+    await pumpIo(tester, ticks: 8);
+    expect(find.byType(PlayerScreen), findsOneWidget);
+  });
+
   testWidgets('si la fuente falla al abrir, pasa a la siguiente con el aviso', (
     tester,
   ) async {
@@ -142,7 +167,7 @@ void main() {
     await play(tester, [broken, good], prober: prober);
     await pumpIo(tester, ticks: 8);
 
-    expect(find.text('Esa fuente no anduvo, probando otra…'), findsOneWidget);
+    expect(find.text('Probando otra fuente…'), findsOneWidget);
     expect(find.byType(PlayerScreen), findsNothing);
     gate.complete();
     await pumpIo(tester, ticks: 8);
@@ -223,16 +248,10 @@ void main() {
 
     await tester.tap(find.byKey(const Key('player-source-menu')));
     await tester.pumpAndSettle();
-    final items = find.byType(CheckedPopupMenuItem<int>);
+    final items = find.byType(PanelOption);
     expect(items, findsNWidgets(3));
-    expect(
-      tester.widget<CheckedPopupMenuItem<int>>(items.at(0)).checked,
-      isTrue,
-    );
-    expect(
-      tester.widget<CheckedPopupMenuItem<int>>(items.at(1)).checked,
-      isFalse,
-    );
+    expect(tester.widget<PanelOption>(items.at(0)).checked, isTrue);
+    expect(tester.widget<PanelOption>(items.at(1)).checked, isFalse);
     // Los que hay que bajar en el debrid se marcan.
     expect(find.text('Sin cachear'), findsOneWidget);
 

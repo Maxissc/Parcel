@@ -112,9 +112,30 @@ class DesktopWindowService implements WindowService {
     });
   }
 
+  /// `true` si para entrar a pantalla completa hubo que ocultar el título.
+  static bool _titleHiddenForFullScreen = false;
+
+  /// Con la ventana maximizada, `window_manager` en Windows deja la barra de
+  /// título y el borde al entrar a pantalla completa: solo saca el marco si el
+  /// estilo del título no es «normal» (ver `WM_NCCALCSIZE` en su plugin). Por
+  /// eso, desde maximizada se oculta el título antes de entrar y se devuelve
+  /// después de salir; al salir la ventana vuelve maximizada.
   @override
-  Future<void> setFullScreen(bool fullScreen) =>
-      windowManager.setFullScreen(fullScreen);
+  Future<void> setFullScreen(bool fullScreen) async {
+    if (fullScreen) {
+      if (!_titleHiddenForFullScreen && await windowManager.isMaximized()) {
+        await windowManager.setTitleBarStyle(TitleBarStyle.hidden);
+        _titleHiddenForFullScreen = true;
+      }
+      await windowManager.setFullScreen(true);
+      return;
+    }
+    await windowManager.setFullScreen(false);
+    if (_titleHiddenForFullScreen) {
+      _titleHiddenForFullScreen = false;
+      await windowManager.setTitleBarStyle(TitleBarStyle.normal);
+    }
+  }
 
   @override
   Future<bool> isFullScreen() => windowManager.isFullScreen();

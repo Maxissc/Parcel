@@ -1,16 +1,20 @@
+import 'dart:async';
+
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
 import '../app/theme.dart';
 import 'poster_card.dart';
 
-/// Título de una fila: el nombre y, en gris al lado, de dónde viene.
+/// Título de una fila: el nombre y, en gris al lado, de dónde viene. Con
+/// [onSeeAll], el título se puede tocar y a la derecha aparece «Ver todo ›».
 class RowHeader extends StatelessWidget {
   const RowHeader({
     super.key,
     required this.title,
     this.subtitle,
     this.trailing,
+    this.onSeeAll,
   });
 
   final String title;
@@ -19,62 +23,156 @@ class RowHeader extends StatelessWidget {
   /// Algo a la derecha del título (por ejemplo «Reintentar»).
   final Widget? trailing;
 
+  /// Abre el catálogo entero.
+  final VoidCallback? onSeeAll;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: Spacing.lg),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.baseline,
-        textBaseline: TextBaseline.alphabetic,
-        children: [
+    Widget titleText = Text(
+      title,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+    );
+    if (onSeeAll != null) {
+      titleText = InkWell(
+        key: const Key('row-title'),
+        onTap: onSeeAll,
+        // Con el teclado se llega por «Ver todo ›»; si el título también
+        // tomara el foco, ↓ desde una tarjeta pararía en él.
+        canRequestFocus: false,
+        borderRadius: BorderRadius.circular(6),
+        child: titleText,
+      );
+    }
+    final labels = Row(
+      crossAxisAlignment: CrossAxisAlignment.baseline,
+      textBaseline: TextBaseline.alphabetic,
+      children: [
+        Flexible(child: Semantics(header: true, child: titleText)),
+        if (subtitle != null) ...[
+          const SizedBox(width: Spacing.sm),
           Flexible(
-            child: Semantics(
-              header: true,
-              child: Text(
-                title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w600,
-                ),
+            child: Text(
+              subtitle!,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
               ),
             ),
           ),
-          if (subtitle != null) ...[
-            const SizedBox(width: Spacing.sm),
-            Flexible(
-              child: Text(
-                subtitle!,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
-              ),
-            ),
-          ],
-          if (trailing != null) ...[
-            const SizedBox(width: Spacing.sm),
-            trailing!,
-          ],
         ],
-      ),
+        if (trailing != null) ...[const SizedBox(width: Spacing.sm), trailing!],
+      ],
+    );
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: Spacing.lg),
+      child: onSeeAll == null
+          ? labels
+          : Row(
+              children: [
+                // El título y el addon a la izquierda; «Ver todo ›» pegado al
+                // borde derecho.
+                Expanded(
+                  child: Align(alignment: Alignment.centerLeft, child: labels),
+                ),
+                _SeeAllButton(onPressed: onSeeAll!),
+              ],
+            ),
     );
   }
 }
 
-/// Fila horizontal que se desplaza con la rueda del mouse (sin Shift) y con
-/// flechas que aparecen al pasar el mouse. Si la fila ya no puede moverse en
-/// esa dirección, la rueda sigue de largo y mueve la página.
+/// «Ver todo ›»: se llega con Tab, pero las flechas direccionales lo saltean
+/// (con [SeeAllSkippingPolicy]).
+class _SeeAllButton extends StatefulWidget {
+  const _SeeAllButton({required this.onPressed});
+
+  final VoidCallback onPressed;
+
+  @override
+  State<_SeeAllButton> createState() => _SeeAllButtonState();
+}
+
+class _SeeAllButtonState extends State<_SeeAllButton> {
+  final FocusNode _node = FocusNode(debugLabel: 'ver-todo');
+
+  @override
+  void initState() {
+    super.initState();
+    SeeAllSkippingPolicy._nodes.add(_node);
+  }
+
+  @override
+  void dispose() {
+    SeeAllSkippingPolicy._nodes.remove(_node);
+    _node.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return TextButton(
+      key: const Key('row-see-all'),
+      focusNode: _node,
+      onPressed: widget.onPressed,
+      child: const Text('Ver todo ›'),
+    );
+  }
+}
+
+/// Recorrido del foco de la home: igual al de lectura, pero ↑ ↓ ← → no paran
+/// en los «Ver todo ›» de las filas (siguen alcanzables con Tab).
+class SeeAllSkippingPolicy extends ReadingOrderTraversalPolicy {
+  SeeAllSkippingPolicy();
+
+  static final Set<FocusNode> _nodes = {};
+
+  @override
+  bool inDirection(FocusNode currentNode, TraversalDirection direction) {
+    final skipped = [
+      for (final node in _nodes)
+        if (node != currentNode && !node.skipTraversal) node,
+    ];
+    for (final node in skipped) {
+      node.skipTraversal = true;
+    }
+    try {
+      return super.inDirection(currentNode, direction);
+    } finally {
+      for (final node in skipped) {
+        node.skipTraversal = false;
+      }
+    }
+  }
+}
+
+/// Fila horizontal de tarjetas.
+///
+/// La rueda vertical sigue de largo y mueve la página; la fila se mueve con
+/// Shift + rueda, con el desplazamiento horizontal del trackpad, arrastrando
+/// con el mouse y con las flechas ‹ › que aparecen al pasar el mouse.
 class Shelf extends StatefulWidget {
-  const Shelf({super.key, required this.itemCount, required this.itemBuilder});
+  const Shelf({
+    super.key,
+    required this.itemCount,
+    required this.itemBuilder,
+    this.height = defaultHeight,
+  });
 
   final int itemCount;
   final IndexedWidgetBuilder itemBuilder;
+  final double height;
 
-  static const double height =
+  /// Alto de una fila de pósters.
+  static const double defaultHeight =
       210 + PosterSize.captionHeight + Spacing.sm + Spacing.md;
+
+  /// Cuánto del ancho visible avanza una flecha.
+  static const double pageFraction = 0.85;
+  static const Duration pageDuration = Duration(milliseconds: 380);
 
   @override
   State<Shelf> createState() => _ShelfState();
@@ -82,8 +180,15 @@ class Shelf extends StatefulWidget {
 
 class _ShelfState extends State<Shelf> {
   final ScrollController _controller = ScrollController();
-  bool _hovered = false;
-  double? _target;
+  // Estado de las flechas aparte, para no reconstruir las tarjetas: solo las
+  // flechas escuchan estos avisos.
+  final ValueNotifier<bool> _hovered = ValueNotifier(false);
+  bool _overRow = false;
+  // El mouse sobre la tarjeta agrandada también cuenta como estar sobre la
+  // fila.
+  bool _overGrown = false;
+  final ValueNotifier<bool> _canBack = ValueNotifier(false);
+  final ValueNotifier<bool> _canForward = ValueNotifier(false);
 
   @override
   void initState() {
@@ -95,74 +200,68 @@ class _ShelfState extends State<Shelf> {
   void dispose() {
     _controller.removeListener(_changed);
     _controller.dispose();
+    _hovered.dispose();
+    _canBack.dispose();
+    _canForward.dispose();
     super.dispose();
   }
 
-  // Lo último que se dibujó de las flechas: la fila solo se redibuja cuando
-  // una flecha aparece o desaparece, no en cada paso del desplazamiento.
-  bool _backShown = false;
-  bool _forwardShown = false;
+  void _syncHover() => _hovered.value = _overRow || _overGrown;
 
   void _changed() {
-    if (!mounted) return;
-    final back = _canGoBack;
-    final forward = _canGoForward;
-    if (back == _backShown && forward == _forwardShown) return;
-    setState(() {
-      _backShown = back;
-      _forwardShown = forward;
-    });
-  }
-
-  double get _max =>
-      _controller.hasClients ? _controller.position.maxScrollExtent : 0;
-  double get _pixels =>
-      _controller.hasClients ? _controller.position.pixels : 0;
-  bool get _canGoBack => _pixels > 1;
-  bool get _canGoForward => _pixels < _max - 1;
-
-  void _animateTo(double offset) {
-    if (!_controller.hasClients) return;
-    final target = offset.clamp(0.0, _max);
-    _target = target;
-    _controller
-        .animateTo(
-          target,
-          duration: const Duration(milliseconds: 160),
-          curve: Curves.easeOut,
-        )
-        .whenComplete(() => _target = null);
-  }
-
-  void _onPointerSignal(PointerSignalEvent event) {
-    if (event is! PointerScrollEvent || !_controller.hasClients) return;
-    final delta = event.scrollDelta;
-    // Con la rueda común el movimiento viene vertical; el horizontal (touchpad
-    // o Shift) lo maneja la propia lista.
-    if (delta.dy == 0 || delta.dy.abs() < delta.dx.abs()) return;
-    final from = _target ?? _pixels;
-    final next = (from + delta.dy).clamp(0.0, _max);
-    if (next == from) return; // en el borde: que siga la página.
-    GestureBinding.instance.pointerSignalResolver.register(event, (_) {
-      _animateTo(next);
-    });
+    if (!mounted || !_controller.hasClients) return;
+    final position = _controller.position;
+    _canBack.value = position.pixels > 1;
+    _canForward.value = position.pixels < position.maxScrollExtent - 1;
   }
 
   void _page(int direction) {
     if (!_controller.hasClients) return;
-    final step = _controller.position.viewportDimension * 0.8;
-    _animateTo((_target ?? _pixels) + direction * step);
+    final position = _controller.position;
+    final target =
+        (position.pixels +
+                direction * position.viewportDimension * Shelf.pageFraction)
+            .clamp(0.0, position.maxScrollExtent);
+    unawaited(
+      _controller.animateTo(
+        target,
+        duration: MediaQuery.disableAnimationsOf(context)
+            ? Duration.zero
+            : Shelf.pageDuration,
+        curve: Curves.easeOutCubic,
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
+    final fade = Theme.of(context).scaffoldBackgroundColor;
+    final behavior = ScrollConfiguration.of(context).copyWith(
+      scrollbars: false,
+      dragDevices: {
+        PointerDeviceKind.touch,
+        PointerDeviceKind.mouse,
+        PointerDeviceKind.trackpad,
+        PointerDeviceKind.stylus,
+      },
+    );
     return SizedBox(
-      height: Shelf.height,
+      height: widget.height,
       child: MouseRegion(
-        onEnter: (_) => setState(() => _hovered = true),
-        onExit: (_) => setState(() => _hovered = false),
-        child: Listener(
-          onPointerSignal: _onPointerSignal,
+        onEnter: (_) {
+          _overRow = true;
+          _syncHover();
+        },
+        onExit: (_) {
+          _overRow = false;
+          _syncHover();
+        },
+        child: ShelfScope(
+          onOverlayHover: (value) {
+            if (!mounted) return;
+            _overGrown = value;
+            _syncHover();
+          },
           child: NotificationListener<ScrollMetricsNotification>(
             onNotification: (_) {
               WidgetsBinding.instance.addPostFrameCallback((_) => _changed());
@@ -170,31 +269,35 @@ class _ShelfState extends State<Shelf> {
             },
             child: Stack(
               children: [
-                ListView.separated(
-                  controller: _controller,
-                  scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.fromLTRB(
-                    Spacing.lg,
-                    Spacing.sm,
-                    Spacing.lg,
-                    Spacing.md,
+                ScrollConfiguration(
+                  behavior: behavior,
+                  child: ListView.separated(
+                    controller: _controller,
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.fromLTRB(
+                      Spacing.lg,
+                      Spacing.sm,
+                      Spacing.lg,
+                      Spacing.md,
+                    ),
+                    itemCount: widget.itemCount,
+                    separatorBuilder: (_, _) =>
+                        const SizedBox(width: Spacing.md),
+                    itemBuilder: widget.itemBuilder,
                   ),
-                  itemCount: widget.itemCount,
-                  separatorBuilder: (_, _) => const SizedBox(width: Spacing.md),
-                  itemBuilder: widget.itemBuilder,
                 ),
                 _Arrow(
-                  alignment: Alignment.centerLeft,
-                  icon: Icons.chevron_left,
-                  tooltip: 'Ver anteriores',
-                  visible: _hovered && _canGoBack,
+                  forward: false,
+                  fade: fade,
+                  hovered: _hovered,
+                  can: _canBack,
                   onPressed: () => _page(-1),
                 ),
                 _Arrow(
-                  alignment: Alignment.centerRight,
-                  icon: Icons.chevron_right,
-                  tooltip: 'Ver más',
-                  visible: _hovered && _canGoForward,
+                  forward: true,
+                  fade: fade,
+                  hovered: _hovered,
+                  can: _canForward,
                   onPressed: () => _page(1),
                 ),
               ],
@@ -208,39 +311,73 @@ class _ShelfState extends State<Shelf> {
 
 class _Arrow extends StatelessWidget {
   const _Arrow({
-    required this.alignment,
-    required this.icon,
-    required this.tooltip,
-    required this.visible,
+    required this.forward,
+    required this.fade,
+    required this.hovered,
+    required this.can,
     required this.onPressed,
   });
 
-  final Alignment alignment;
-  final IconData icon;
-  final String tooltip;
-  final bool visible;
+  final bool forward;
+  final Color fade;
+  final ValueNotifier<bool> hovered;
+  final ValueNotifier<bool> can;
   final VoidCallback onPressed;
 
   @override
   Widget build(BuildContext context) {
-    return Align(
-      alignment: alignment,
-      child: Padding(
-        padding: const EdgeInsets.only(bottom: PosterSize.captionHeight),
-        child: ExcludeFocus(
-          child: IgnorePointer(
-            ignoring: !visible,
-            child: AnimatedOpacity(
-              opacity: visible ? 1 : 0,
-              duration: const Duration(milliseconds: 150),
-              child: IconButton.filledTonal(
-                tooltip: tooltip,
-                icon: Icon(icon),
-                onPressed: onPressed,
+    final side = forward ? Alignment.centerRight : Alignment.centerLeft;
+    final other = forward ? Alignment.centerLeft : Alignment.centerRight;
+    return Positioned(
+      top: 0,
+      bottom: 0,
+      left: forward ? null : 0,
+      right: forward ? 0 : null,
+      width: CardGrowth.arrowGutter,
+      child: ListenableBuilder(
+        listenable: Listenable.merge([hovered, can]),
+        builder: (context, _) {
+          final show = hovered.value && can.value;
+          return ExcludeFocus(
+            child: IgnorePointer(
+              ignoring: !show,
+              child: AnimatedOpacity(
+                opacity: show ? 1 : 0,
+                duration: MediaQuery.disableAnimationsOf(context)
+                    ? Duration.zero
+                    : const Duration(milliseconds: 180),
+                curve: Curves.easeOut,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: side,
+                      end: other,
+                      colors: [fade, fade.withValues(alpha: 0)],
+                    ),
+                  ),
+                  child: Align(
+                    alignment: side,
+                    child: Padding(
+                      padding: const EdgeInsets.only(
+                        bottom: PosterSize.captionHeight,
+                        left: Spacing.sm,
+                        right: Spacing.sm,
+                      ),
+                      child: IconButton.filledTonal(
+                        tooltip: forward ? 'Ver más' : 'Ver anteriores',
+                        iconSize: 32,
+                        icon: Icon(
+                          forward ? Icons.chevron_right : Icons.chevron_left,
+                        ),
+                        onPressed: onPressed,
+                      ),
+                    ),
+                  ),
+                ),
               ),
             ),
-          ),
-        ),
+          );
+        },
       ),
     );
   }
@@ -253,7 +390,7 @@ class ShelfSkeleton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: Shelf.height,
+      height: Shelf.defaultHeight,
       child: ListView.separated(
         physics: const NeverScrollableScrollPhysics(),
         scrollDirection: Axis.horizontal,

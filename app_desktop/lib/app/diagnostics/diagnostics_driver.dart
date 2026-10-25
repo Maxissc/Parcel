@@ -1,14 +1,19 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show kReleaseMode;
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:parcel_core/parcel_core.dart' hide Video;
 
 import '../../data/browse_providers.dart';
+import '../../data/catalog_pager.dart';
+import '../../data/home_layout.dart';
 import '../../data/progress_providers.dart';
 import '../../data/providers.dart';
 import '../../features/detail/detail_utils.dart';
+import '../../features/home/home_rows.dart';
 import '../../features/onboarding/onboarding_controller.dart';
 import '../../features/player/play_args.dart';
 import '../../features/player/play_item.dart';
@@ -38,18 +43,38 @@ class DiagnosticsDriver extends ConsumerStatefulWidget {
 
 class _DiagnosticsDriverState extends ConsumerState<DiagnosticsDriver> {
   Timer? _exitTimer;
+  Timer? _framesTimer;
+  final List<FrameTiming> _frames = [];
+  DateTime _framesSince = DateTime.now();
 
-  DiagLog get _log => ref.read(diagLogProvider);
+  // Se lee una vez: el recorrido sigue un rato después de que la pantalla se
+  // cierra y `ref` ya no se puede usar.
+  late final DiagLog _log;
+  bool _measuring = false;
 
   @override
   void initState() {
     super.initState();
+    _log = ref.read(diagLogProvider);
     final config = ref.read(diagnosticsConfigProvider);
-    if (config == null) return;
+    // Los tiempos de cuadro también se miden en un build `--profile` (que no
+    // tiene el diagnóstico completo) con PARCEL_FRAME_STATS=1.
+    final profileStats =
+        !kReleaseMode && Platform.environment['PARCEL_FRAME_STATS'] == '1';
+    if (config == null) {
+      if (profileStats) {
+        _startFrameStats((line) => stdout.writeln('[diag] $line'));
+      }
+      return;
+    }
+    if (config.frameStats) {
+      _startFrameStats((line) => _log.log(line));
+    }
     final exitAfter = config.exitAfter;
     if (exitAfter != null) {
       _exitTimer = Timer(exitAfter, () {
-        ref.read(diagLogProvider).log('cierre por PARCEL_DIAG_EXIT_SECONDS');
+        _logFrames();
+        _log.log('cierre por PARCEL_DIAG_EXIT_SECONDS');
         exit(0);
       });
     }
@@ -75,6 +100,35 @@ class _DiagnosticsDriverState extends ConsumerState<DiagnosticsDriver> {
       }
       unawaited(pasted.then((_) => _browse(config)));
     });
+  }
+
+  void Function(String line) _frameSink = (_) {};
+
+  void _startFrameStats(void Function(String line) sink) {
+    _frameSink = sink;
+    _measuring = true;
+    _framesSince = DateTime.now();
+    SchedulerBinding.instance.addTimingsCallback(_onTimings);
+    _framesTimer = Timer.periodic(
+      const Duration(seconds: 5),
+      (_) => _logFrames(),
+    );
+  }
+
+  void _onTimings(List<FrameTiming> timings) => _frames.addAll(timings);
+
+  /// Resume los cuadros dibujados desde el último aviso.
+  void _logFrames() {
+    if (_frames.isEmpty) return;
+    final now = DateTime.now();
+    _frameSink(
+      frameSummary([
+        for (final f in _frames)
+          (build: f.buildDuration, raster: f.rasterDuration),
+      ], now.difference(_framesSince)),
+    );
+    _framesSince = now;
+    _frames.clear();
   }
 
   /// Completa el asistente como si el usuario pegara [text] y confirmara.
@@ -119,7 +173,10 @@ class _DiagnosticsDriverState extends ConsumerState<DiagnosticsDriver> {
       ref.read(routerProvider).go(Routes.home);
     }
     try {
+      final hide = config.hideRow;
+      if (hide != null) await _hideRow(hide);
       await _logHome();
+      if (config.seeAll) await _logSeeAll();
       final search = config.search;
       if (search != null) await _logSearch(search);
       final open = config.open;
@@ -131,19 +188,50 @@ class _DiagnosticsDriverState extends ConsumerState<DiagnosticsDriver> {
     }
   }
 
+  /// Oculta la fila [index] de la home y deja el ajuste guardado.
+  Future<void> _hideRow(int index) async {
+    final rows = ref.read(homeAllRowsProvider);
+    if (index < 0 || index >= rows.length) {
+      _log.log('diagnóstico: no hay una fila $index para ocultar');
+      return;
+    }
+    final layout = ref.read(appSettingsProvider).homeLayout;
+    await ref
+        .read(appSettingsProvider.notifier)
+        .setHomeLayout(
+          layout.copyWith(
+            order: [for (final r in rows) homeRowKey(r)],
+            hidden: {...layout.hidden, homeRowKey(rows[index])},
+          ),
+        );
+    final c = rows[index];
+    _log.log(
+      'home: oculta la fila «${c.catalog.name} · ${typeLabel(c.catalog.type)}» '
+      '(${c.addon.manifest.name})',
+    );
+  }
+
+  /// La home pide cada fila cuando se acerca a la pantalla: se espera un
+  /// momento a las que ya salieron y se cuenta cuáles se pidieron y cuáles no.
   Future<void> _logHome() async {
-    final catalogs = ref.read(addonAggregatorProvider).homeCatalogs();
-    final results = await Future.wait([
-      for (final catalog in catalogs)
-        _await(catalogItemsProvider((catalog: catalog, search: null))),
-    ]);
+    final catalogs = ref.read(homeRowsProvider);
+    final hidden = ref.read(homeAllRowsProvider).length - catalogs.length;
+    await WidgetsBinding.instance.endOfFrame;
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted) return;
+    var requested = 0;
     var withItems = 0;
-    for (var i = 0; i < catalogs.length; i++) {
-      final c = catalogs[i];
+    for (final c in catalogs) {
+      final key = (catalog: c, search: null);
       final name =
           '«${c.catalog.name} · ${typeLabel(c.catalog.type)}» '
           '(${c.addon.manifest.name})';
-      switch (results[i]) {
+      if (!ref.container.exists(catalogItemsProvider(key))) {
+        _log.log('home fila $name: todavía no se pidió (fuera de pantalla)');
+        continue;
+      }
+      requested++;
+      switch (await _await(catalogItemsProvider(key))) {
         case AddonFailure(:final error):
           _log.log('home fila $name: no se pudo cargar (${error.reason.name})');
         case AddonSuccess(:final value) when value.isEmpty:
@@ -153,7 +241,10 @@ class _DiagnosticsDriverState extends ConsumerState<DiagnosticsDriver> {
           _log.log('home fila $name: ${value.length} ítems');
       }
     }
-    _log.log('home: $withItems de ${catalogs.length} catálogos con ítems');
+    _log.log(
+      'home: $requested de ${catalogs.length} filas pedidas, $withItems con '
+      'ítems${hidden > 0 ? ', $hidden ocultas' : ''}',
+    );
     final watching = ref.read(continueWatchingProvider);
     _log.log('seguir viendo: ${watching.length} ítems');
     for (final p in watching) {
@@ -165,6 +256,50 @@ class _DiagnosticsDriverState extends ConsumerState<DiagnosticsDriver> {
         '(${formatPlaybackTime(p.position)} de ${formatPlaybackTime(p.duration)})',
       );
     }
+  }
+
+  /// «Ver todo» de la primera fila: la primera página, la segunda con `skip` y
+  /// la primera de un género.
+  Future<void> _logSeeAll() async {
+    final catalogs = ref.read(homeRowsProvider);
+    if (catalogs.isEmpty) return;
+    final catalog = catalogs.first;
+    Future<CatalogPage> pageOf(PagerKey key, int pages) async {
+      final provider = catalogPagerProvider(key);
+      final hold = ref.listenManual(provider, (_, _) {});
+      try {
+        for (var i = 0; i < pages; i++) {
+          final before = ref.read(provider).items.length;
+          await ref.read(provider.notifier).loadMore();
+          if (ref.read(provider).items.length == before) break;
+        }
+        final page = ref.read(provider);
+        return page;
+      } finally {
+        hold.close();
+      }
+    }
+
+    final name = '«${catalog.catalog.name}»';
+    final first = await pageOf((catalog: catalog, genre: null), 1);
+    final two = await pageOf((catalog: catalog, genre: null), 2);
+    _log.log(
+      'ver todo $name: ${first.items.length} ítems en la primera página, '
+      '${two.items.length} con la segunda (skip)',
+    );
+    final genres = [
+      for (final e in catalog.catalog.extra)
+        if (e.name == 'genre') ...e.options,
+    ];
+    if (genres.isEmpty) {
+      _log.log('ver todo $name: el addon no declara géneros');
+      return;
+    }
+    final filtered = await pageOf((catalog: catalog, genre: genres.first), 1);
+    _log.log(
+      'ver todo $name: ${filtered.items.length} ítems con el género '
+      '«${genres.first}» (${genres.length} géneros en total)',
+    );
   }
 
   Future<void> _logSearch(String query) async {
@@ -331,6 +466,10 @@ class _DiagnosticsDriverState extends ConsumerState<DiagnosticsDriver> {
   @override
   void dispose() {
     _exitTimer?.cancel();
+    _framesTimer?.cancel();
+    if (_measuring) {
+      SchedulerBinding.instance.removeTimingsCallback(_onTimings);
+    }
     super.dispose();
   }
 

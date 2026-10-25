@@ -40,3 +40,13 @@ String failureText(AddonException error) => switch (error.reason) {
   AddonFailureReason.invalidUrl => 'La dirección del addon no es válida',
   AddonFailureReason.storage => 'No se pudo guardar en disco',
 };
+
+/// «Quedan 12 min» o «Quedan 1 h 05 min»; `null` si ya no queda nada.
+String? remainingLabel(Duration duration, Duration position) {
+  final left = duration - position;
+  if (left <= Duration.zero) return null;
+  final minutes = (left.inSeconds / 60).ceil();
+  if (minutes < 60) return 'Quedan $minutes min';
+  final rest = (minutes % 60).toString().padLeft(2, '0');
+  return 'Quedan ${minutes ~/ 60} h $rest min';
+}

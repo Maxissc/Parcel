@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:parcel_core/parcel_core.dart' show Meta;
+import 'package:parcel_core/parcel_core.dart' show CatalogRef, Meta;
 
 import '../data/providers.dart';
 import '../features/addons/addons_screen.dart';
+import '../features/catalog/catalog_screen.dart';
 import '../features/detail/detail_screen.dart';
 import '../features/home/home_screen.dart';
 import '../features/onboarding/onboarding_screen.dart';
@@ -28,6 +29,7 @@ abstract final class Routes {
   static const player = '/player';
   static const play = '/play';
   static const streams = '/streams';
+  static const catalog = '/catalog';
   static const detail = '/detail/:type/:id';
 
   /// Dirección del detalle de un contenido.
@@ -55,6 +57,9 @@ final routerProvider = Provider<GoRouter>((ref) {
         return Routes.home;
       }
       if (location == Routes.streams && state.extra is! StreamsArgs) {
+        return Routes.home;
+      }
+      if (location == Routes.catalog && state.extra is! CatalogRef) {
         return Routes.home;
       }
       if (location != Routes.onboarding &&
@@ -92,6 +97,11 @@ final routerProvider = Provider<GoRouter>((ref) {
           id: state.pathParameters['id']!,
           hint: state.extra is Meta ? state.extra! as Meta : null,
         ),
+      ),
+      GoRoute(
+        path: Routes.catalog,
+        builder: (context, state) =>
+            CatalogScreen(catalog: state.extra! as CatalogRef),
       ),
       GoRoute(
         path: Routes.streams,

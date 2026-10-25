@@ -9,6 +9,7 @@ import '../data/platform.dart';
 import '../data/progress_providers.dart';
 import '../data/providers.dart';
 import '../shared/state_views.dart';
+import 'back_navigation.dart';
 import 'diagnostics/diagnostics_driver.dart';
 import 'router.dart';
 import 'theme.dart';
@@ -81,15 +82,18 @@ class _ParcelAppState extends ConsumerState<ParcelApp> {
         ),
       );
     }
+    final router = ref.watch(routerProvider);
     return MaterialApp.router(
       title: appName,
       theme: buildDarkTheme(),
       darkTheme: buildDarkTheme(),
       themeMode: ThemeMode.dark,
       debugShowCheckedModeBanner: false,
-      routerConfig: ref.watch(routerProvider),
-      builder: (context, child) =>
-          DiagnosticsDriver(child: child ?? const SizedBox.shrink()),
+      routerConfig: router,
+      builder: (context, child) => BackNavigation(
+        router: router,
+        child: DiagnosticsDriver(child: child ?? const SizedBox.shrink()),
+      ),
     );
   }
 

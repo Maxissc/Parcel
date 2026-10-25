@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -10,6 +11,7 @@ import 'package:parcel_desktop/data/platform.dart';
 import 'package:parcel_desktop/data/progress_providers.dart';
 import 'package:parcel_desktop/data/providers.dart';
 import 'package:parcel_desktop/features/player/play_item.dart';
+import 'package:parcel_desktop/features/player/play_route.dart';
 import 'package:parcel_desktop/features/player/player_route.dart';
 import 'package:parcel_desktop/features/player/player_screen.dart';
 import 'package:parcel_desktop/features/player/track_preferences.dart';
@@ -92,6 +94,7 @@ void main() {
     PlaybackProgress? saved,
     String? subtitleLanguage,
     String? audioLanguage,
+    bool autoPlayNext = true,
   }) async {
     await seedData(
       tester,
@@ -99,6 +102,7 @@ void main() {
       world.client,
       urls: [cinemetaUrl, subtitlesUrl, streamsAddonUrl],
       onboardingCompleted: true,
+      openFullScreen: true,
       audioLanguage: audioLanguage,
       subtitleLanguage: subtitleLanguage,
       progress: [?saved],
@@ -110,6 +114,14 @@ void main() {
       overrides: [playbackEngineFactoryProvider.overrideWithValue(() => fake)],
       window: window,
     );
+    if (!autoPlayNext) {
+      await tester.runAsync(
+        () =>
+            containerOf(tester)
+                .read(appSettingsProvider.notifier)
+                .setAutoPlayNext(false),
+      );
+    }
     routerOf(tester).push(Routes.player, extra: args);
     await pumpIo(tester, ticks: 4);
   }
@@ -478,6 +490,222 @@ void main() {
     await leavePlayer(tester);
   });
 
+  group('siguiente episodio en los créditos', () {
+    PlayerArgs episodeArgs() => PlayerArgs(
+      url: 'http://media.example.com/video.mkv',
+      item: _episodeItem(2),
+    );
+
+    Future<void> seekTo(
+      WidgetTester tester,
+      FakePlaybackEngine fake,
+      Duration to,
+    ) async {
+      await fake.seek(to);
+      await tester.pump();
+      await tester.pump();
+    }
+
+    testWidgets('en los últimos 30 s sale la tarjeta con cuenta de 10 s y al '
+        'terminar la cuenta abre el siguiente', (tester) async {
+      final fake = engine();
+      await openPlayer(tester, fake, episodeArgs());
+      await seekTo(tester, fake, const Duration(minutes: 9, seconds: 29));
+      expect(find.byKey(const Key('player-next-card')), findsNothing);
+
+      await seekTo(tester, fake, const Duration(minutes: 9, seconds: 31));
+      expect(find.byKey(const Key('player-next-card')), findsOneWidget);
+      expect(find.text('Empieza en 10 s'), findsOneWidget);
+
+      await tester.pump(const Duration(seconds: 3));
+      expect(find.text('Empieza en 7 s'), findsOneWidget);
+      expect(find.byType(PlayerScreen), findsOneWidget);
+
+      await tester.pump(const Duration(seconds: 7));
+      await pumpIo(tester, ticks: 6);
+      expect(find.byType(PlayerScreen), findsNothing);
+      expect(find.byType(PlayRoute), findsOneWidget);
+    });
+
+    testWidgets('«Cancelar» detiene la cuenta y el video sigue', (
+      tester,
+    ) async {
+      final fake = engine();
+      await openPlayer(tester, fake, episodeArgs());
+      await seekTo(tester, fake, const Duration(minutes: 9, seconds: 40));
+
+      await tester.tap(find.byKey(const Key('player-next-cancel')));
+      await tester.pump();
+      expect(find.byKey(const Key('player-next-card')), findsNothing);
+      await tester.pump(const Duration(seconds: 15));
+      expect(find.byType(PlayerScreen), findsOneWidget);
+      await leavePlayer(tester);
+    });
+
+    testWidgets('apagado, solo muestra el botón y no arranca solo', (
+      tester,
+    ) async {
+      final again = engine();
+      await openPlayer(tester, again, episodeArgs(), autoPlayNext: false);
+      await seekTo(tester, again, const Duration(minutes: 9, seconds: 40));
+      expect(find.byKey(const Key('player-next-card')), findsOneWidget);
+      expect(find.byKey(const Key('player-next-countdown')), findsNothing);
+      expect(find.byKey(const Key('player-next-cancel')), findsNothing);
+      await tester.pump(const Duration(seconds: 15));
+      expect(find.byType(PlayerScreen), findsOneWidget);
+      await leavePlayer(tester);
+    });
+
+    testWidgets('si el archivo trae un capítulo «Credits», la tarjeta sale '
+        'ahí', (tester) async {
+      final fake = engine();
+      await openPlayer(tester, fake, episodeArgs());
+      fake.emitStats(const PlaybackStats(creditsStart: Duration(minutes: 5)));
+      await seekTo(tester, fake, const Duration(minutes: 4, seconds: 59));
+      expect(find.byKey(const Key('player-next-card')), findsNothing);
+
+      await seekTo(tester, fake, const Duration(minutes: 5, seconds: 1));
+      expect(find.byKey(const Key('player-next-card')), findsOneWidget);
+      await leavePlayer(tester);
+    });
+
+    testWidgets('con el video en pausa la cuenta se congela y sigue al '
+        'reanudar', (tester) async {
+      final fake = engine();
+      await openPlayer(tester, fake, episodeArgs());
+      await seekTo(tester, fake, const Duration(minutes: 9, seconds: 40));
+      await tester.pump(const Duration(seconds: 3));
+      expect(find.text('Empieza en 7 s'), findsOneWidget);
+
+      await fake.pause();
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 15));
+      expect(find.text('Empieza en 7 s'), findsOneWidget);
+      expect(find.byType(PlayerScreen), findsOneWidget);
+
+      await fake.play();
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 3));
+      expect(find.text('Empieza en 4 s'), findsOneWidget);
+      await tester.pump(const Duration(seconds: 4));
+      await pumpIo(tester, ticks: 6);
+      expect(find.byType(PlayerScreen), findsNothing);
+    });
+
+    testWidgets('con la ventana inactiva o minimizada la cuenta se congela', (
+      tester,
+    ) async {
+      final fake = engine();
+      await openPlayer(tester, fake, episodeArgs());
+      await seekTo(tester, fake, const Duration(minutes: 9, seconds: 40));
+      await tester.pump(const Duration(seconds: 2));
+      expect(find.text('Empieza en 8 s'), findsOneWidget);
+
+      for (final state in [
+        AppLifecycleState.inactive,
+        AppLifecycleState.hidden,
+      ]) {
+        tester.binding.handleAppLifecycleStateChanged(state);
+      }
+      await tester.pump(const Duration(seconds: 15));
+      expect(find.text('Empieza en 8 s'), findsOneWidget);
+
+      for (final state in [
+        AppLifecycleState.inactive,
+        AppLifecycleState.resumed,
+      ]) {
+        tester.binding.handleAppLifecycleStateChanged(state);
+      }
+      await tester.pump(const Duration(seconds: 2));
+      expect(find.text('Empieza en 6 s'), findsOneWidget);
+      await leavePlayer(tester);
+    });
+
+    testWidgets('tras «Cancelar», al terminar el video la tarjeta vuelve sin '
+        'cuenta', (tester) async {
+      final fake = engine();
+      await openPlayer(tester, fake, episodeArgs());
+      await seekTo(tester, fake, const Duration(minutes: 9, seconds: 40));
+      await tester.tap(find.byKey(const Key('player-next-cancel')));
+      await tester.pump();
+      expect(find.byKey(const Key('player-next-card')), findsNothing);
+
+      fake.tick(const Duration(minutes: 1));
+      await tester.pump();
+      await tester.pump();
+      expect(find.byKey(const Key('player-next-card')), findsOneWidget);
+      expect(find.byKey(const Key('player-next-countdown')), findsNothing);
+      await tester.pump(const Duration(seconds: 15));
+      expect(find.byType(PlayerScreen), findsOneWidget);
+      await leavePlayer(tester);
+    });
+
+    Future<void> setAutoPlayNext(WidgetTester tester, bool value) async {
+      await tester.runAsync(
+        () =>
+            containerOf(tester)
+                .read(appSettingsProvider.notifier)
+                .setAutoPlayNext(value),
+      );
+      await pumpIo(tester, ticks: 2);
+    }
+
+    testWidgets('apagar «Pasar solo al siguiente» en pleno conteo lo corta', (
+      tester,
+    ) async {
+      final fake = engine();
+      await openPlayer(tester, fake, episodeArgs());
+      await seekTo(tester, fake, const Duration(minutes: 9, seconds: 40));
+      expect(find.text('Empieza en 10 s'), findsOneWidget);
+
+      await setAutoPlayNext(tester, false);
+      expect(find.byKey(const Key('player-next-countdown')), findsNothing);
+      expect(find.byKey(const Key('player-next-card')), findsOneWidget);
+      await tester.pump(const Duration(seconds: 15));
+      expect(find.byType(PlayerScreen), findsOneWidget);
+      await leavePlayer(tester);
+    });
+
+    testWidgets('prender «Pasar solo al siguiente» en los créditos arranca la '
+        'cuenta', (tester) async {
+      final fake = engine();
+      await openPlayer(tester, fake, episodeArgs(), autoPlayNext: false);
+      await seekTo(tester, fake, const Duration(minutes: 9, seconds: 40));
+      expect(find.byKey(const Key('player-next-countdown')), findsNothing);
+
+      await setAutoPlayNext(tester, true);
+      expect(find.byKey(const Key('player-next-countdown')), findsOneWidget);
+      await leavePlayer(tester);
+    });
+
+    testWidgets('al principio del episodio no sale la tarjeta (sin capítulo de '
+        'créditos al final)', (tester) async {
+      final fake = engine();
+      await openPlayer(tester, fake, episodeArgs());
+      fake.emitStats(const PlaybackStats());
+      await seekTo(tester, fake, const Duration(seconds: 5));
+      expect(find.byKey(const Key('player-next-card')), findsNothing);
+      await tester.pump(const Duration(seconds: 15));
+      expect(find.byType(PlayerScreen), findsOneWidget);
+      await leavePlayer(tester);
+    });
+
+    testWidgets('volver atrás del video rearma: sin tarjeta ni cuenta', (
+      tester,
+    ) async {
+      final fake = engine();
+      await openPlayer(tester, fake, episodeArgs());
+      await seekTo(tester, fake, const Duration(minutes: 9, seconds: 40));
+      expect(find.text('Empieza en 10 s'), findsOneWidget);
+
+      await seekTo(tester, fake, const Duration(minutes: 3));
+      expect(find.byKey(const Key('player-next-card')), findsNothing);
+      await tester.pump(const Duration(seconds: 15));
+      expect(find.byType(PlayerScreen), findsOneWidget);
+      await leavePlayer(tester);
+    });
+  });
+
   testWidgets(
     'la tarjeta del episodio siguiente y el panel de datos no se pisan',
     (tester) async {
@@ -522,6 +750,45 @@ void main() {
     expect(window.title, 'Breaking Bad · T1 E1 · Episodio 1x1 · Parcel');
     await leavePlayer(tester);
     expect(window.title, 'Parcel');
+  });
+
+  testWidgets('el botón Atrás del mouse en el reproductor hace la cadena de '
+      'Esc: panel de datos, pantalla completa y recién después vuelve', (
+    tester,
+  ) async {
+    final fake = engine();
+    await openPlayer(
+      tester,
+      fake,
+      PlayerArgs(url: 'http://media.example.com/video.mkv', item: _movieItem()),
+    );
+    expect(window.fullScreen, isTrue);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyI);
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.byKey(const Key('player-info-panel')), findsOneWidget);
+
+    Future<void> back() async {
+      final mouse = await tester.createGesture(
+        kind: PointerDeviceKind.mouse,
+        buttons: kBackMouseButton,
+      );
+      await mouse.down(const Offset(600, 300));
+      await mouse.up();
+      await pumpIo(tester, ticks: 3);
+    }
+
+    await back();
+    expect(find.byKey(const Key('player-info-panel')), findsNothing);
+    expect(window.fullScreen, isTrue);
+    expect(find.byKey(const Key('player-controls')), findsOneWidget);
+
+    await back();
+    expect(window.fullScreen, isFalse);
+    expect(find.byKey(const Key('player-controls')), findsOneWidget);
+
+    await back();
+    expect(find.byKey(const Key('player-controls')), findsNothing);
+    await pumpIo(tester, ticks: 12);
   });
 
   group('pantalla completa', () {

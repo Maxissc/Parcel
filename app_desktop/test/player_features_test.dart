@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -8,6 +9,7 @@ import 'package:parcel_desktop/app/router.dart';
 import 'package:parcel_desktop/data/platform.dart';
 import 'package:parcel_desktop/data/playback_providers.dart';
 import 'package:parcel_desktop/features/player/play_item.dart';
+import 'package:parcel_desktop/features/player/side_panel.dart';
 import 'package:parcel_desktop/features/player/player_route.dart';
 
 import 'support/catalog_world.dart';
@@ -194,11 +196,17 @@ void main() {
     await tester.tap(find.byKey(const Key('player-subtitle-menu')));
     await tester.pumpAndSettle();
 
-    double y(String text) => tester.getTopLeft(find.text(text).first).dy;
-    expect(y('Español (Latinoamérica)'), lessThan(y('Español')));
-    expect(y('Español'), lessThan(y('Inglés')));
-    expect(y('Inglés'), lessThan(y('Más idiomas')));
-    expect(y('Más idiomas'), lessThan(y('Francés')));
+    double heading(String text) =>
+        tester.getTopLeft(find.widgetWithText(PanelHeading, text)).dy;
+    double item(String text) =>
+        tester.getTopLeft(find.widgetWithText(PanelOption, text).first).dy;
+    // Separadores por idioma, y dentro de cada uno el orden de siempre.
+    expect(heading('Español'), lessThan(item('Español (Latinoamérica)')));
+    expect(item('Español (Latinoamérica)'), lessThan(item('Español')));
+    expect(item('Español'), lessThan(heading('Inglés')));
+    expect(heading('Inglés'), lessThan(item('Inglés')));
+    expect(item('Inglés'), lessThan(heading('Más idiomas')));
+    expect(heading('Más idiomas'), lessThan(item('Francés')));
     expect(find.text('Probablemente sincronizado'), findsOneWidget);
     expect(find.text('Puede estar desfasado'), findsOneWidget);
     expect(find.text('Sincronizar subtítulos… (S)'), findsOneWidget);
@@ -667,10 +675,214 @@ void main() {
     await tester.pump(const Duration(seconds: 40));
     expect(find.byKey(const Key('player-error')), findsNothing);
   });
+
+  testWidgets('un subtítulo que todavía se baja muestra «Descargando…» y '
+      'queda elegido hasta que carga', (tester) async {
+    final fake = engine();
+    await openPlayer(tester, fake);
+    await letSubtitlesLoad(tester, fake);
+    expect(fake.state.selectedSubtitle?.language, 'spl');
+
+    fake.externalGate = Completer<void>();
+    await tester.tap(find.byKey(const Key('player-subtitle-menu')));
+    await tester.pumpAndSettle();
+    await tester.tap(_menuItem('Español'));
+    await twice(tester);
+
+    await tester.tap(find.byKey(const Key('player-subtitle-menu')));
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.text('Descargando…'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: _menuItem('Español'),
+        matching: find.byType(CircularProgressIndicator),
+      ),
+      findsOneWidget,
+    );
+    expect(tester.widget<PanelOption>(_menuItem('Español')).checked, isTrue);
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pump(const Duration(milliseconds: 400));
+
+    fake.externalGate!.complete();
+    await pumpIo(tester, ticks: 4);
+    expect(fake.state.selectedSubtitle?.language, 'spa');
+    await tester.tap(find.byKey(const Key('player-subtitle-menu')));
+    await tester.pumpAndSettle();
+    expect(find.text('Descargando…'), findsNothing);
+  });
+
+  testWidgets('si el subtítulo no se baja, avisa y queda el anterior', (
+    tester,
+  ) async {
+    final fake = engine();
+    await openPlayer(tester, fake);
+    await letSubtitlesLoad(tester, fake);
+
+    fake.externalFails = true;
+    await tester.tap(find.byKey(const Key('player-subtitle-menu')));
+    await tester.pumpAndSettle();
+    await tester.tap(_menuItem('Español'));
+    await pumpIo(tester, ticks: 4);
+
+    expect(find.text('No se pudo cargar el subtítulo'), findsOneWidget);
+    expect(fake.state.selectedSubtitle?.language, 'spl');
+    await tester.tap(find.byKey(const Key('player-subtitle-menu')));
+    await tester.pumpAndSettle();
+    expect(find.text('Descargando…'), findsNothing);
+  });
+
+  testWidgets('el overlay de carga se va con el primer cuadro real y no '
+      'antes', (tester) async {
+    final fake = engine()..stallOnOpen = true;
+    await openPlayer(tester, fake);
+    expect(find.byKey(const Key('player-loading')), findsOneWidget);
+
+    // Antes de medio segundo de video real, sigue.
+    fake.setBuffering(false);
+    fake.tick(const Duration(milliseconds: 300));
+    await twice(tester);
+    expect(find.byKey(const Key('player-loading')), findsOneWidget);
+
+    // Un stream en vivo (sin duración) que avanza ya arrancó: se va.
+    fake.tick(const Duration(milliseconds: 300));
+    await twice(tester);
+    // Se va con un fundido (unos 350 ms), no de golpe.
+    expect(find.byKey(const Key('player-loading')), findsOneWidget);
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pump();
+    expect(find.byKey(const Key('player-loading')), findsNothing);
+  });
+
+  testWidgets('con duración pero cargando, el overlay sigue hasta que '
+      'termina de cargar', (tester) async {
+    final fake = engine();
+    await openPlayer(tester, fake);
+    await twice(tester);
+    expect(find.byKey(const Key('player-loading')), findsNothing);
+
+    fake.setBuffering(true);
+    await twice(tester);
+    expect(find.byKey(const Key('player-loading')), findsOneWidget);
+    fake.setBuffering(false);
+    await twice(tester);
+    expect(find.byKey(const Key('player-loading')), findsNothing);
+  });
+
+  group('elegir otro subtítulo mientras uno baja', () {
+    late _GatedEngine gated;
+    const spa = 'http://subs.example.com/es.srt';
+
+    Future<void> pick(WidgetTester tester, String label) async {
+      await tester.tap(find.byKey(const Key('player-subtitle-menu')));
+      // Con una descarga en curso el menú tiene un indicador que no para:
+      // no se puede esperar a que todo se asiente.
+      await tester.pump();
+      for (var i = 0; i < 8; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+      await tester.tap(_menuItem(label));
+      await tester.pump(const Duration(milliseconds: 400));
+    }
+
+    Future<void> start(WidgetTester tester) async {
+      gated = _GatedEngine();
+      await openPlayer(tester, gated);
+      // El menú es largo: una ventana alta para que todos los ítems se vean.
+      tester.view.physicalSize = const Size(1280, 1600);
+      await letSubtitlesLoad(tester, gated);
+      expect(gated.state.selectedSubtitle?.language, 'spl');
+    }
+
+    int checked(WidgetTester tester) => find
+        .byWidgetPredicate((w) => w is PanelOption && w.checked)
+        .evaluate()
+        .length;
+
+    testWidgets('elegir «Desactivados» cancela el «Descargando…» y la baja '
+        'vieja no vuelve a elegir', (tester) async {
+      await start(tester);
+      gated.gates[spa] = Completer<void>();
+      await pick(tester, 'Español');
+
+      await pick(tester, 'Desactivados');
+      expect(gated.state.selectedSubtitle, isNull);
+      await tester.tap(find.byKey(const Key('player-subtitle-menu')));
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.text('Descargando…'), findsNothing);
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pump(const Duration(milliseconds: 400));
+
+      gated.gates[spa]!.complete();
+      await pumpIo(tester, ticks: 4);
+      expect(gated.state.selectedSubtitle, isNull);
+    });
+
+    testWidgets('A lento → B rápido: B queda elegido, con un solo ítem '
+        'tildado, aunque A termine después', (tester) async {
+      await start(tester);
+      gated.gates[spa] = Completer<void>();
+      await pick(tester, 'Español');
+      await pick(tester, 'Inglés');
+      expect(gated.state.selectedSubtitle?.language, 'eng');
+
+      gated.gates[spa]!.complete();
+      await pumpIo(tester, ticks: 4);
+      expect(gated.state.selectedSubtitle?.language, 'eng');
+
+      await tester.tap(find.byKey(const Key('player-subtitle-menu')));
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.text('Descargando…'), findsNothing);
+      expect(checked(tester), 1);
+      expect(tester.widget<PanelOption>(_menuItem('Inglés')).checked, isTrue);
+    });
+
+    testWidgets('A lento → B rápido → A falla: B sigue y A no se queda con la '
+        'pista de B', (tester) async {
+      await start(tester);
+      gated.gates[spa] = Completer<void>();
+      gated.failing.add(spa);
+      await pick(tester, 'Español');
+      await pick(tester, 'Inglés');
+
+      gated.gates[spa]!.complete();
+      await pumpIo(tester, ticks: 4);
+      expect(gated.state.selectedSubtitle?.language, 'eng');
+
+      // Volver a elegir «Español» baja su propia pista (ya no falla).
+      gated.failing.clear();
+      gated.gates.remove(spa);
+      await pick(tester, 'Español');
+      await pumpIo(tester, ticks: 4);
+      expect(gated.state.selectedSubtitle?.language, 'spa');
+      expect(gated.state.selectedSubtitle?.isExternal, isTrue);
+    });
+  });
+}
+
+/// Un motor donde cada URL de subtítulo externo puede demorarse o fallar por
+/// separado.
+class _GatedEngine extends FakePlaybackEngine {
+  _GatedEngine()
+    : super(
+        mediaDuration: const Duration(minutes: 10),
+        audioTracks: const [AudioTrack(id: '1', language: 'eng')],
+      );
+
+  final Map<String, Completer<void>> gates = {};
+  final Set<String> failing = {};
+
+  @override
+  Future<void> addExternalSubtitle(
+    String url, {
+    String? title,
+    String? language,
+  }) async {
+    await gates[url]?.future;
+    if (failing.contains(url)) return;
+    await super.addExternalSubtitle(url, title: title, language: language);
+  }
 }
 
 /// El ítem de un menú emergente que lleva [text].
-Finder _menuItem(String text) => find.ancestor(
-  of: find.text(text),
-  matching: find.byWidgetPredicate((w) => w is PopupMenuItem<Object>),
-);
+Finder _menuItem(String text) =>
+    find.ancestor(of: find.text(text), matching: find.byType(PanelOption));

@@ -64,4 +64,28 @@ void main() {
   test('sin PARCEL_DIAG no hay configuración', () {
     expect(DiagnosticsConfig.fromEnvironment({}), isNull);
   });
+
+  group('resumen de cuadros', () {
+    Duration ms(int v) => Duration(milliseconds: v);
+
+    test('cuenta lentos por armado o por raster, no por el total', () {
+      final line = frameSummary([
+        (build: ms(5), raster: ms(5)),
+        // Cada etapa entra en 16,7 ms aunque juntas pasen: no es lento.
+        (build: ms(12), raster: ms(12)),
+        (build: ms(20), raster: ms(4)),
+        (build: ms(3), raster: ms(30)),
+      ], ms(5000));
+      expect(line, contains('cuadros: 4 en 5.0 s'));
+      expect(line, contains('más de 16,7 ms: 2'));
+      expect(line, contains('armado medio 10.0 ms (peor 20.0)'));
+      expect(line, contains('raster medio 12.8 ms (peor 30.0)'));
+    });
+
+    test('dice el tiempo real del tramo, no siempre 5 s', () {
+      final line = frameSummary([(build: ms(5), raster: ms(5))], ms(2300));
+      expect(line, contains('en 2.3 s'));
+      expect(line, isNot(contains('en 5')));
+    });
+  });
 }

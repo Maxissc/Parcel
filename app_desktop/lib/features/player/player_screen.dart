@@ -4,12 +4,17 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:parcel_core/parcel_core.dart';
 
+import '../../app/back_navigation.dart';
 import '../../app/theme.dart';
 import '../../data/platform.dart';
 import '../../playback/playback_errors.dart';
+import '../../playback/subtitle_position.dart';
 import '../../playback/video_surface.dart';
+import 'loading_view.dart';
 import 'player_controls.dart';
 import 'player_info.dart';
+import 'player_panels.dart';
+import 'side_panel.dart';
 import 'source_menu.dart';
 import 'subtitle_catalog.dart';
 import 'subtitle_delay.dart';
@@ -61,9 +66,15 @@ class PlayerScreen extends StatefulWidget {
     this.onDecision,
     this.syncTaps = const [],
     this.autoOpenNext = false,
+    this.autoNext = false,
+    this.loadingArt,
   });
 
   final PlaybackEngine engine;
+
+  /// Fondo, logo y nombre del contenido para la pantalla de carga. Sin esto
+  /// muestra el [title].
+  final LoadingArt? loadingArt;
   final PlaybackSource source;
 
   /// Subtítulos externos que se cargan al abrir. Si hay más de uno queda
@@ -91,6 +102,16 @@ class PlayerScreen extends StatefulWidget {
 
   /// Si hay, al terminar el video se ofrece pasar al episodio que sigue.
   final NextEpisode? next;
+
+  /// Con [next], en los créditos arranca una cuenta regresiva de
+  /// [nextCountdown] y al llegar a cero abre el episodio que sigue («Pasar solo
+  /// al siguiente episodio»). Apagado, solo se ofrece el botón.
+  final bool autoNext;
+  static const int nextCountdown = 10;
+
+  /// Cuánto antes del final se consideran créditos si el archivo no trae un
+  /// capítulo «Credits».
+  static const Duration creditsWindow = Duration(seconds: 30);
   final String? title;
 
   /// Si es `true`, libera [engine] al cerrar la pantalla.
@@ -142,7 +163,8 @@ class PlayerScreen extends StatefulWidget {
   State<PlayerScreen> createState() => _PlayerScreenState();
 }
 
-class _PlayerScreenState extends State<PlayerScreen> {
+class _PlayerScreenState extends State<PlayerScreen>
+    with WidgetsBindingObserver {
   static const _seekStep = Duration(seconds: 10);
   static const _volumeStep = 0.05;
   static const _doubleTap = Duration(milliseconds: 300);
@@ -158,15 +180,41 @@ class _PlayerScreenState extends State<PlayerScreen> {
   Timer? _progressTimer;
   Timer? _tapTimer;
   Timer? _openTimer;
+  Timer? _liftTimer;
+
+  /// Cuánto están subidos los subtítulos ahora (fracción del alto).
+  double _liftNow = 0;
   StreamSubscription<PlaybackState>? _stateSub;
   StreamSubscription<PlaybackStats>? _statsSub;
   PlaybackStats _stats = PlaybackStats.empty;
   bool _controlsVisible = true;
   bool _menuOpen = false;
+
+  /// El panel lateral que está en pantalla; con [_panelOpen] en `false` está
+  /// haciendo la animación de salida.
+  PlayerPanel? _panel;
+  bool _panelOpen = false;
+
+  /// Las opciones de subtítulos del panel, armadas una vez (ver
+  /// [_subtitleEntries]).
+  List<SubtitleEntry>? _entriesCache;
+  List<SubtitleTrack>? _entriesTracks;
+  int _catalogVersion = 0;
+  int _entriesVersion = -1;
   bool _fullScreen = false;
   bool _wasPlaying = false;
   bool _wasCompleted = false;
   bool _nextDismissed = false;
+
+  /// El usuario canceló la cuenta (o cerró la tarjeta) en estos créditos: no
+  /// vuelve a arrancar hasta que se salga de ellos.
+  bool _countdownCancelled = false;
+
+  /// La ventana está en primer plano (la cuenta no corre si no).
+  bool _appActive = true;
+  Timer? _countdownTimer;
+  int? _countdown;
+  SubtitleEntry? _loadingEntry;
   bool _userPickedAudio = false;
   bool _userPickedSubtitle = false;
   bool _started = false;
@@ -196,9 +244,25 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   PlaybackEngine get _engine => widget.engine;
 
+  BackInterceptors? _backInterceptors;
+
+  /// El botón Atrás del mouse hace lo que Esc: cierra el asistente de
+  /// sincronización o el panel de datos, sale de pantalla completa y recién
+  /// después vuelve. Solo si el reproductor es la pantalla de arriba.
+  bool _onMouseBack() {
+    if (!mounted || ModalRoute.of(context)?.isCurrent != true) return false;
+    unawaited(_escape());
+    return true;
+  }
+
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _appActive =
+        (WidgetsBinding.instance.lifecycleState ?? AppLifecycleState.resumed) ==
+        AppLifecycleState.resumed;
+    _backInterceptors = BackScope.maybeOf(context)?..add(_onMouseBack);
     _catalog = widget.catalog ?? SubtitleCatalog();
     _lateLoaded = widget.lateSubtitles == null;
     _catalog.addListener(_onCatalogChanged);
@@ -220,12 +284,16 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _backInterceptors?.remove(_onMouseBack);
     _reportProgress();
     _hideTimer?.cancel();
     _osdTimer?.cancel();
     _progressTimer?.cancel();
     _tapTimer?.cancel();
     _openTimer?.cancel();
+    _liftTimer?.cancel();
+    _countdownTimer?.cancel();
     unawaited(_stateSub?.cancel());
     unawaited(_statsSub?.cancel());
     _catalog.removeListener(_onCatalogChanged);
@@ -236,7 +304,34 @@ class _PlayerScreenState extends State<PlayerScreen> {
     super.dispose();
   }
 
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _appActive = state == AppLifecycleState.resumed;
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _applyLift();
+  }
+
+  @override
+  void didUpdateWidget(PlayerScreen old) {
+    super.didUpdateWidget(old);
+    if (old.autoNext == widget.autoNext) return;
+    // El ajuste «Pasar solo al siguiente» se lee en vivo.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (!widget.autoNext) {
+        _stopCountdown();
+      } else {
+        _updateNextEpisode(_engine.state);
+      }
+    });
+  }
+
   void _onCatalogChanged() {
+    _catalogVersion++;
     if (mounted) setState(() {});
   }
 
@@ -457,29 +552,73 @@ class _PlayerScreenState extends State<PlayerScreen> {
     await _maybeRunSyncTaps();
   }
 
+  /// Número de la última elección de subtítulo (cada elección suma uno). Una
+  /// descarga vieja que termina cuando ya hubo otra elección no pisa la nueva.
+  int _pickToken = 0;
+  int _resolvedToken = 0;
+
+  /// La pista que dejó la última elección ya resuelta (`null` si apagó los
+  /// subtítulos).
+  SubtitleTrack? _pickedTrack;
+
+  void _resolvePick(int token) {
+    if (token != _pickToken) return;
+    _resolvedToken = token;
+    _pickedTrack = _engine.state.selectedSubtitle;
+  }
+
   Future<void> _selectEntry(SubtitleEntry entry) async {
+    final token = ++_pickToken;
     final embedded = entry.embedded;
     if (embedded != null) {
       await _engine.setSubtitleTrack(embedded);
+      _resolvePick(token);
       return;
     }
     final known = _loadedExternal[entry.id];
     if (known != null) {
       await _engine.setSubtitleTrack(known);
+      _resolvePick(token);
       return;
     }
     final before = _engine.state.subtitleTracks.map((t) => t.id).toSet();
-    await _engine.addExternalSubtitle(
-      entry.subtitle.url,
-      title: entry.label,
-      language: entry.subtitle.lang,
-    );
-    final selected = _engine.state.selectedSubtitle;
-    if (selected != null &&
-        selected.isExternal &&
-        !before.contains(selected.id)) {
-      _loadedExternal[entry.id] = selected;
+    // Mientras se baja, el menú lo marca «Descargando…» y la elección queda.
+    if (mounted) setState(() => _loadingEntry = entry);
+    try {
+      await _engine.addExternalSubtitle(
+        entry.subtitle.url,
+        title: entry.label,
+        language: entry.subtitle.lang,
+      );
+    } finally {
+      if (mounted && token == _pickToken && _loadingEntry?.id == entry.id) {
+        setState(() => _loadingEntry = null);
+      }
     }
+    // La pista que se sumó para esta entrada: una externa nueva que no es de
+    // ninguna otra (con dos bajadas en curso, la del medio no es de esta).
+    final owned = _loadedExternal.values.toSet();
+    final added = _engine.state.subtitleTracks
+        .where(
+          (t) => t.isExternal && !before.contains(t.id) && !owned.contains(t),
+        )
+        .lastOrNull;
+    if (added != null) _loadedExternal[entry.id] = added;
+    if (token != _pickToken) {
+      // Hubo otra elección mientras bajaba: el motor eligió esta pista al
+      // terminar, y se vuelve a la elección más nueva (si ya se resolvió).
+      if (added != null &&
+          _resolvedToken > token &&
+          _engine.state.selectedSubtitle == added) {
+        await _engine.setSubtitleTrack(_pickedTrack);
+      }
+      return;
+    }
+    if (added == null && mounted) {
+      // No se pudo bajar: queda el subtítulo que había.
+      _showOsd('No se pudo cargar el subtítulo');
+    }
+    _resolvePick(token);
     if (_delay != Duration.zero) await _engine.setSubtitleDelay(_delay);
   }
 
@@ -505,7 +644,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _userPickedSubtitle = true;
     final previous = _selectedSubtitleKey();
     if (previous != null) _trackDelays[previous] = _delay;
+    // Elegir otra cosa cancela el «Descargando…» de una elección anterior.
+    final token = ++_pickToken;
+    if (_loadingEntry != null && mounted) setState(() => _loadingEntry = null);
     await change();
+    _resolvePick(token);
     if (!mounted || nextKey == null || nextKey == previous) return;
     final delay = _trackDelays[nextKey] ?? Duration.zero;
     if (delay != _delay) _setDelay(delay);
@@ -519,7 +662,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
         state.subtitleTracks.where((t) => !t.isExternal).toList(),
       ),
       alignmentOf: _catalog.alignmentOf,
+      isLoading: (entry) => _loadingEntry?.id == entry.id,
       isSelected: (entry) {
+        // Bajando una, la que queda tildada es esa y ninguna otra.
+        final loading = _loadingEntry;
+        if (loading != null) return loading.id == entry.id;
         final selected = state.selectedSubtitle;
         if (selected == null) return false;
         return entry.embedded != null
@@ -574,6 +721,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   /// I (o el botón): el panel de datos y el asistente no van juntos.
   void _toggleInfo() {
+    if (_panel != null) _closePanel();
     setState(() {
       _infoOpen = !_infoOpen;
       if (_infoOpen) _syncOpen = false;
@@ -613,6 +761,79 @@ class _PlayerScreenState extends State<PlayerScreen> {
   String _labelOf(Subtitle subtitle) =>
       _catalog.entryFor(subtitle)?.label ?? subtitle.lang;
 
+  // --- Siguiente episodio -------------------------------------------------------
+
+  /// `true` en los créditos (los últimos 30 s, o desde el capítulo «Credits» si
+  /// el archivo lo trae) y al terminar.
+  bool _inCredits(PlaybackState s) {
+    if (widget.next == null) return false;
+    if (s.completed) return true;
+    final duration = s.duration;
+    if (duration <= Duration.zero) return false;
+    final start = _stats.creditsStart;
+    if (start != null) return s.position >= start;
+    // Un video muy corto no tiene créditos aparte.
+    if (duration < PlayerScreen.creditsWindow * 2) return false;
+    return s.position >= duration - PlayerScreen.creditsWindow;
+  }
+
+  bool _nextVisible(PlaybackState s) => !_nextDismissed && _inCredits(s);
+
+  void _updateNextEpisode(PlaybackState s) {
+    if (!mounted) return;
+    if (!_inCredits(s)) {
+      // Salió de los créditos (volvió atrás en el video): se rearma todo.
+      _stopCountdown();
+      _countdownCancelled = false;
+      if (_nextDismissed) setState(() => _nextDismissed = false);
+      return;
+    }
+    if (widget.autoNext &&
+        !_nextDismissed &&
+        !_countdownCancelled &&
+        _countdownTimer == null) {
+      _startCountdown();
+    }
+  }
+
+  void _startCountdown() {
+    setState(() => _countdown = PlayerScreen.nextCountdown);
+    _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      // Con el video en pausa o la ventana sin foco la cuenta espera (al
+      // terminar el video ya no hay nada que esperar).
+      final state = _engine.state;
+      if (!_appActive || (!state.playing && !state.completed)) return;
+      final left = (_countdown ?? 1) - 1;
+      if (left > 0) {
+        setState(() => _countdown = left);
+        return;
+      }
+      timer.cancel();
+      _countdownTimer = null;
+      setState(() => _countdown = 0);
+      _decide('siguiente episodio: lo abre solo al terminar la cuenta');
+      widget.next?.onOpen(context);
+    });
+  }
+
+  void _stopCountdown() {
+    _countdownTimer?.cancel();
+    _countdownTimer = null;
+    if (_countdown != null && mounted) setState(() => _countdown = null);
+  }
+
+  /// «Cancelar» (o cerrar la tarjeta): no abre solo y la tarjeta se va hasta
+  /// que se salga de los créditos.
+  void _dismissNext() {
+    _stopCountdown();
+    _countdownCancelled = true;
+    setState(() => _nextDismissed = true);
+  }
+
   // --- Progreso ----------------------------------------------------------------
 
   void _onEngineState(PlaybackState s) {
@@ -627,7 +848,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _wasPlaying = s.playing;
     _wasCompleted = s.completed;
     if (paused || finished) _reportProgress();
-    if (finished && mounted) setState(() => _nextDismissed = false);
+    // Al terminar el video la tarjeta vuelve (sin cuenta, si se la canceló).
+    if (finished && _nextDismissed) setState(() => _nextDismissed = false);
+    _updateNextEpisode(s);
     if (finished && widget.autoOpenNext && widget.next != null) {
       _decide('siguiente episodio: lo abre solo (diagnóstico)');
       unawaited(
@@ -671,6 +894,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
   /// Esc: cierra el asistente de sincronización o el panel de datos; si no,
   /// sale de pantalla completa; si no, vuelve.
   Future<void> _escape() async {
+    if (_panel != null) {
+      _closePanel();
+      return;
+    }
     if (_syncOpen) {
       _closeSync();
       return;
@@ -766,12 +993,53 @@ class _PlayerScreenState extends State<PlayerScreen> {
       if (!mounted || _menuOpen || _dragValue != null) return;
       if (_engine.state.error != null) return;
       setState(() => _controlsVisible = false);
+      _applyLift();
+    });
+  }
+
+  /// Alto, en píxeles, que sube el subtítulo mientras se ven los controles:
+  /// lo justo para quedar arriba de la barra de progreso.
+  static const double subtitleLiftPixels = 88;
+
+  /// Sube el subtítulo si los controles están a la vista y lo baja si no, con
+  /// un cambio suave (salvo con las animaciones apagadas).
+  void _applyLift() {
+    final engine = _engine;
+    if (engine is! SubtitleLiftable) return;
+    final lifter = engine as SubtitleLiftable;
+    final height = MediaQuery.sizeOf(context).height;
+    if (height <= 0) return;
+    final target = _controlsVisible ? subtitleLiftPixels / height : 0.0;
+    _liftTimer?.cancel();
+    if (MediaQuery.disableAnimationsOf(context)) {
+      if (target != _liftNow) {
+        _liftNow = target;
+        unawaited(lifter.setSubtitleLift(target));
+      }
+      return;
+    }
+    final from = _liftNow;
+    if (target == from) return;
+    const steps = 10;
+    var step = 0;
+    _liftTimer = Timer.periodic(const Duration(milliseconds: 20), (timer) {
+      step++;
+      final done = step >= steps;
+      _liftNow = done
+          ? target
+          : from +
+                (target - from) * Curves.easeOutCubic.transform(step / steps);
+      unawaited(lifter.setSubtitleLift(_liftNow));
+      if (done) timer.cancel();
     });
   }
 
   /// Muestra los controles y reinicia la cuenta para ocultarlos.
   void _poke() {
-    if (!_controlsVisible) setState(() => _controlsVisible = true);
+    if (!_controlsVisible) {
+      setState(() => _controlsVisible = true);
+      _applyLift();
+    }
     _scheduleHide();
   }
 
@@ -793,6 +1061,105 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _refocus();
     _poke();
   }
+
+  // --- Paneles laterales (Fuente, Audio, Subtítulos) ------------------------
+
+  /// Abre el panel [kind]; si ya es el que está abierto, lo cierra.
+  void _openPanel(PlayerPanel kind) {
+    if (_panel == kind && _panelOpen) {
+      _closePanel();
+      return;
+    }
+    _menuOpened();
+    setState(() {
+      _panel = kind;
+      _panelOpen = true;
+      _infoOpen = false;
+    });
+  }
+
+  /// Cierra el panel con su animación de salida y devuelve el foco.
+  void _closePanel() {
+    if (_panel == null || !_panelOpen) return;
+    setState(() => _panelOpen = false);
+    _menuClosed();
+  }
+
+  /// Terminó la animación de salida: el panel se saca del árbol.
+  void _panelDismissed() {
+    if (mounted && !_panelOpen) setState(() => _panel = null);
+  }
+
+  /// Las opciones de subtítulos ordenadas. Se rearman al cambiar las pistas o
+  /// el catálogo, no en cada cuadro del video.
+  List<SubtitleEntry> _subtitleEntries(
+    SubtitleMenuData data,
+    PlaybackState state,
+  ) {
+    final cached = _entriesCache;
+    if (cached != null &&
+        identical(_entriesTracks, state.subtitleTracks) &&
+        _entriesVersion == _catalogVersion) {
+      return cached;
+    }
+    _entriesTracks = state.subtitleTracks;
+    _entriesVersion = _catalogVersion;
+    return _entriesCache = data.entries();
+  }
+
+  Widget _panelBody(PlaybackState state) {
+    switch (_panel!) {
+      case PlayerPanel.source:
+        return SourcePanelBody(
+          menu: widget.sourceMenu!,
+          position: state.position,
+          onPick: _closePanel,
+        );
+      case PlayerPanel.audio:
+        return AudioPanelBody(
+          state: state,
+          onSelected: (t) {
+            _userPickedAudio = true;
+            unawaited(_engine.setAudioTrack(t));
+            _closePanel();
+          },
+        );
+      case PlayerPanel.subtitles:
+        final data = _subtitleMenu(state);
+        return SubtitlePanelBody(
+          state: state,
+          data: data,
+          entries: data == null ? const [] : _subtitleEntries(data, state),
+          onSelected: (t) {
+            unawaited(
+              _changeSubtitle(
+                t == null
+                    ? null
+                    : (t.isExternal ? 'trk:${t.id}' : 'emb:${t.id}'),
+                () => _engine.setSubtitleTrack(t),
+              ),
+            );
+            _closePanel();
+          },
+          onSelectedEntry: (entry) {
+            unawaited(_changeSubtitle(entry.id, () => _selectEntry(entry)));
+            _closePanel();
+          },
+          onOpenSync: _syncAvailable
+              ? () {
+                  _closePanel();
+                  _openSync();
+                }
+              : null,
+        );
+    }
+  }
+
+  String _panelTitle() => switch (_panel!) {
+    PlayerPanel.source => 'Fuente',
+    PlayerPanel.audio => 'Audio',
+    PlayerPanel.subtitles => 'Subtítulos',
+  };
 
   // --- Acciones --------------------------------------------------------------
 
@@ -857,9 +1224,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
       _setDelay(_delay + subtitleDelayStep);
     } else if (key == LogicalKeyboardKey.enter &&
         !isRepeat &&
-        _engine.state.completed &&
         widget.next != null &&
-        !_nextDismissed) {
+        _nextVisible(_engine.state)) {
       widget.next!.onOpen(context);
     } else if (key == LogicalKeyboardKey.space && !isRepeat) {
       _playOrPause();
@@ -916,10 +1282,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
     final switching = widget.onOpenFailed != null && !_started;
     final hasError = (state.error != null && !switching) || _stalled;
     final atmos = isAtmosTrack(state.selectedAudio);
-    final loading =
-        !hasError &&
-        (state.buffering || state.duration <= Duration.zero || switching);
-    final showControls = _controlsVisible && !hasError;
+    // El overlay dura hasta el primer cuadro real (la regla `playbackStarted`)
+    // y vuelve si el video se queda cargando después.
+    final started = _started || playbackStarted(state, from: _openedAt);
+    // Hasta el primer cuadro: pantalla de carga con el fondo del contenido. Ya
+    // arrancado, un corte por cargar solo muestra el indicador chico.
+    final opening = !hasError && (!started || switching);
+    final rebuffering = !hasError && !opening && state.buffering;
+    final showControls = _controlsVisible && !hasError && !opening;
 
     return MouseRegion(
       cursor: showControls || hasError
@@ -937,19 +1307,23 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 ? (engine as VideoSurfaceProvider).buildVideoSurface(context)
                 : const ColoredBox(color: Colors.black),
           ),
-          if (loading)
-            Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const CircularProgressIndicator(key: Key('player-loading')),
-                  if (state.duration <= Duration.zero) ...[
-                    const SizedBox(height: 16),
-                    const Text('Cargando…'),
-                  ],
-                ],
+          if (rebuffering)
+            const Center(
+              child: CircularProgressIndicator(key: Key('player-loading')),
+            ),
+          Positioned.fill(
+            child: FadingOverlay(
+              visible: opening,
+              child: PlayerLoadingView(
+                key: const Key('player-loading'),
+                art: widget.loadingArt ?? LoadingArt(name: widget.title ?? ''),
+                status: state.duration > Duration.zero
+                    ? 'Cargando…'
+                    : 'Abriendo…',
+                onBack: _back,
               ),
             ),
+          ),
           if (_osd != null)
             Positioned(
               top: 72,
@@ -966,6 +1340,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   ),
                   child: Text(_osd!, key: const Key('player-osd')),
                 ),
+              ),
+            ),
+          // Un clic fuera del panel lateral lo cierra.
+          if (_panel != null)
+            Positioned.fill(
+              child: GestureDetector(
+                key: const Key('player-panel-scrim'),
+                behavior: HitTestBehavior.opaque,
+                onTap: _closePanel,
               ),
             ),
           IgnorePointer(
@@ -989,28 +1372,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 },
                 onVolumeChanged: _changeVolume,
                 onToggleMute: _toggleMute,
-                onSelectAudio: (t) {
-                  _userPickedAudio = true;
-                  unawaited(_engine.setAudioTrack(t));
-                },
-                onSelectSubtitle: (t) => unawaited(
-                  _changeSubtitle(
-                    t == null
-                        ? null
-                        : (t.isExternal ? 'trk:${t.id}' : 'emb:${t.id}'),
-                    () => _engine.setSubtitleTrack(t),
-                  ),
-                ),
-                subtitles: _subtitleMenu(state),
-                onSelectSubtitleEntry: (entry) => unawaited(
-                  _changeSubtitle(entry.id, () => _selectEntry(entry)),
-                ),
-                onOpenSync: _syncAvailable ? _openSync : null,
+                onOpenPanel: _openPanel,
+                openPanel: _panelOpen ? _panel : null,
                 sourceMenu: widget.sourceMenu,
                 atmos: atmos,
                 onToggleInfo: _toggleInfo,
-                onMenuOpened: _menuOpened,
-                onMenuClosed: _menuClosed,
                 isFullScreen: _fullScreen,
                 onToggleFullScreen: widget.window == null
                     ? null
@@ -1052,15 +1418,24 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 ),
               ),
             ),
-          if (state.completed && widget.next != null && !_nextDismissed)
+          if (widget.next != null && _nextVisible(state))
             Positioned(
               // Con el panel de datos abierto la tarjeta se corre para no pisarlo.
               right: _infoOpen ? InfoPanel.width + Spacing.md : Spacing.lg,
               bottom: 128,
               child: _NextEpisodeCard(
                 next: widget.next!,
-                onDismiss: () => setState(() => _nextDismissed = true),
+                countdown: _countdown,
+                onDismiss: _dismissNext,
               ),
+            ),
+          if (_panel != null)
+            PlayerSidePanel(
+              title: _panelTitle(),
+              open: _panelOpen,
+              onClose: _closePanel,
+              onDismissed: _panelDismissed,
+              child: _panelBody(state),
             ),
           if (hasError)
             _ErrorOverlay(
@@ -1079,10 +1454,17 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
 /// Tarjeta que aparece al terminar un episodio con el que sigue.
 class _NextEpisodeCard extends StatelessWidget {
-  const _NextEpisodeCard({required this.next, required this.onDismiss});
+  const _NextEpisodeCard({
+    required this.next,
+    required this.onDismiss,
+    this.countdown,
+  });
 
   final NextEpisode next;
   final VoidCallback onDismiss;
+
+  /// Segundos que faltan para que arranque solo; `null` si no hay cuenta.
+  final int? countdown;
 
   @override
   Widget build(BuildContext context) {
@@ -1128,12 +1510,32 @@ class _NextEpisodeCard extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
                 style: theme.textTheme.titleMedium,
               ),
+              if (countdown != null)
+                Text(
+                  'Empieza en $countdown s',
+                  key: const Key('player-next-countdown'),
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: theme.colorScheme.primary,
+                  ),
+                ),
               const SizedBox(height: Spacing.md),
-              FilledButton.icon(
-                key: const Key('player-next'),
-                onPressed: () => next.onOpen(context),
-                icon: const Icon(Icons.skip_next),
-                label: const Text('Ver siguiente episodio'),
+              Wrap(
+                spacing: Spacing.sm,
+                runSpacing: Spacing.sm,
+                children: [
+                  FilledButton.icon(
+                    key: const Key('player-next'),
+                    onPressed: () => next.onOpen(context),
+                    icon: const Icon(Icons.skip_next),
+                    label: const Text('Ver siguiente episodio'),
+                  ),
+                  if (countdown != null)
+                    OutlinedButton(
+                      key: const Key('player-next-cancel'),
+                      onPressed: onDismiss,
+                      child: const Text('Cancelar'),
+                    ),
+                ],
               ),
             ],
           ),

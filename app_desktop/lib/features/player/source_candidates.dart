@@ -33,6 +33,36 @@ class SourceCandidate {
     return redactUrlsInText(text);
   }
 
+  /// Qué es el archivo, para el panel «Fuente»: el nombre de archivo que
+  /// declara el addon o, si no, las líneas del título (o la descripción) que no
+  /// son datos sueltos (👤 seeders, 💾 tamaño, ⚙️ sitio). Sin eso, el nombre
+  /// del stream sin su primera línea (que suele ser el addon). Nunca lleva la
+  /// URL.
+  String get displayTitle {
+    String content(String? raw) => (raw ?? '')
+        .split('\n')
+        .map((l) => l.trim())
+        .where((l) => l.isNotEmpty && !_dataLine.hasMatch(l))
+        .join('\n');
+    final fromFile = content(stream.behaviorHints.filename);
+    final fromText = fromFile.isNotEmpty
+        ? fromFile
+        : [
+            stream.title,
+            stream.description,
+          ].map(content).firstWhere((t) => t.isNotEmpty, orElse: () => '');
+    if (fromText.isNotEmpty) return redactUrlsInText(fromText);
+    final name = (stream.name ?? '')
+        .split('\n')
+        .map((l) => l.trim())
+        .where((l) => l.isNotEmpty)
+        .toList();
+    final rest = name.length > 1 ? name.skip(1).join('\n') : name.join('\n');
+    return redactUrlsInText(rest);
+  }
+
+  static final RegExp _dataLine = RegExp(r'^(👤|💾|⚙|🔍|⏳|⬇|📦)');
+
   /// Texto para los menús: addon, nombre y chips. Nunca lleva la URL.
   String get label {
     final parts = <String>[

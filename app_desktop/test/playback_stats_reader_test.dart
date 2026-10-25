@@ -126,4 +126,73 @@ void main() {
       expect(parseMpvInt(''), isNull);
     });
   });
+
+  group('capítulo de créditos', () {
+    const hour = Duration(hours: 1);
+
+    test('toma el inicio del capítulo «Credits» del final', () {
+      const chapters =
+          '[{"title":"Intro","time":0.0},{"title":"Episodio","time":95.5},'
+          '{"title":"Credits","time":2530.25}]';
+      expect(
+        creditsStartFromChapters(chapters, hour),
+        const Duration(milliseconds: 2530250),
+      );
+    });
+
+    test('entiende «Créditos» y mayúsculas', () {
+      expect(
+        creditsStartFromChapters('[{"title":"END CREDITS","time":3000}]', hour),
+        const Duration(seconds: 3000),
+      );
+      expect(
+        creditsStartFromChapters(
+          '[{"title":"Créditos finales","time":3200}]',
+          hour,
+        ),
+        const Duration(seconds: 3200),
+      );
+    });
+
+    test('«Opening Credits» al principio no cuenta: gana el del final', () {
+      expect(
+        creditsStartFromChapters(
+          '[{"title":"Opening Credits","time":0},'
+          '{"title":"Episodio","time":60},'
+          '{"title":"End Credits","time":3300}]',
+          hour,
+        ),
+        const Duration(seconds: 3300),
+      );
+    });
+
+    test('solo «Opening Credits» devuelve null (cae en la ventana)', () {
+      expect(
+        creditsStartFromChapters(
+          '[{"title":"Opening Credits","time":0},'
+          '{"title":"Episodio","time":60}]',
+          hour,
+        ),
+        isNull,
+      );
+    });
+
+    test('un capítulo de créditos antes del 70 % no cuenta', () {
+      expect(
+        creditsStartFromChapters('[{"title":"Credits","time":2000}]', hour),
+        isNull,
+      );
+    });
+
+    test('sin capítulos, vacío o basura devuelve null', () {
+      expect(creditsStartFromChapters('[]', hour), isNull);
+      expect(creditsStartFromChapters('', hour), isNull);
+      expect(creditsStartFromChapters('no es json', hour), isNull);
+      expect(
+        creditsStartFromChapters('[{"title":"Episodio","time":1}]', hour),
+        isNull,
+      );
+      expect(creditsStartFromChapters('[{"time":5}]', hour), isNull);
+    });
+  });
 }

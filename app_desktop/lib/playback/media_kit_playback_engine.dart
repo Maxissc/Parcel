@@ -8,11 +8,13 @@ import 'package:parcel_core/parcel_core.dart';
 import 'cache_profile.dart';
 import 'playback_errors.dart';
 import 'playback_stats_reader.dart';
+import 'subtitle_position.dart';
 import 'video_surface.dart';
 
 /// [PlaybackEngine] sobre media_kit (libmpv). Es el único lugar que conoce los
 /// tipos de media_kit.
-class MediaKitPlaybackEngine implements PlaybackEngine, VideoSurfaceProvider {
+class MediaKitPlaybackEngine
+    implements PlaybackEngine, VideoSurfaceProvider, SubtitleLiftable {
   MediaKitPlaybackEngine({
     this.loadTimeout = const Duration(seconds: 20),
     this.onLog,
@@ -56,6 +58,10 @@ class MediaKitPlaybackEngine implements PlaybackEngine, VideoSurfaceProvider {
   PlaybackStats _stats = PlaybackStats.empty;
   Timer? _statsTimer;
   bool _polling = false;
+
+  // Los capítulos se leen una vez por video, cuando ya se conoce la duración.
+  bool _chaptersRead = false;
+  Duration? _creditsStart;
   mk.VideoParams? _videoParams;
   mk.AudioParams? _audioParams;
   bool _configured = false;
@@ -235,6 +241,8 @@ class MediaKitPlaybackEngine implements PlaybackEngine, VideoSurfaceProvider {
     _videoParams = null;
     _audioParams = null;
     _stats = PlaybackStats.empty;
+    _chaptersRead = false;
+    _creditsStart = null;
     _update(
       (st) => PlaybackState(
         buffering: true,
@@ -296,6 +304,13 @@ class MediaKitPlaybackEngine implements PlaybackEngine, VideoSurfaceProvider {
     _polling = true;
     try {
       Future<String> get(String name) => platform.getProperty(name);
+      if (!_chaptersRead && _state.duration > Duration.zero) {
+        _chaptersRead = true;
+        _creditsStart = creditsStartFromChapters(
+          await get('chapter-list'),
+          _state.duration,
+        );
+      }
       final fps =
           parseMpvDouble(await get('estimated-vf-fps')) ??
           parseMpvDouble(await get('container-fps'));
@@ -322,6 +337,7 @@ class MediaKitPlaybackEngine implements PlaybackEngine, VideoSurfaceProvider {
         bufferAhead: buffer?.ahead ?? Duration.zero,
         bufferBehind: buffer?.behind ?? Duration.zero,
         cacheLevel: cacheProfile.label,
+        creditsStart: _creditsStart,
       );
       if (_disposed || next == _stats) return;
       _stats = next;
@@ -443,6 +459,21 @@ class MediaKitPlaybackEngine implements PlaybackEngine, VideoSurfaceProvider {
     if (platform is! mk.NativePlayer) return;
     final seconds = delay.inMicroseconds / Duration.microsecondsPerSecond;
     await platform.setProperty('sub-delay', seconds.toStringAsFixed(3));
+  }
+
+  int _subPos = 100;
+
+  /// `sub-pos` de mpv es el lugar del subtítulo en % del alto (100 es el de
+  /// siempre, abajo); subirlo es restarle.
+  @override
+  Future<void> setSubtitleLift(double lift) async {
+    if (_disposed) return;
+    final platform = _player.platform;
+    if (platform is! mk.NativePlayer) return;
+    final value = (100 - lift * 100).round().clamp(0, 100);
+    if (value == _subPos) return;
+    _subPos = value;
+    await _setOption(platform, 'sub-pos', '$value');
   }
 
   @override

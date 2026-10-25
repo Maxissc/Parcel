@@ -30,6 +30,7 @@ class PlaybackStats {
     this.bufferAhead = Duration.zero,
     this.bufferBehind = Duration.zero,
     this.cacheLevel,
+    this.creditsStart,
   });
 
   /// Sin datos todavía.
@@ -65,6 +66,9 @@ class PlaybackStats {
   /// Nombre del nivel de caché según la memoria del equipo.
   final String? cacheLevel;
 
+  /// Dónde empiezan los créditos, si el archivo trae un capítulo «Credits».
+  final Duration? creditsStart;
+
   PlaybackStats copyWith({
     int? videoWidth,
     int? videoHeight,
@@ -78,6 +82,7 @@ class PlaybackStats {
     Duration? bufferAhead,
     Duration? bufferBehind,
     String? cacheLevel,
+    Duration? creditsStart,
   }) {
     return PlaybackStats(
       videoWidth: videoWidth ?? this.videoWidth,
@@ -92,6 +97,7 @@ class PlaybackStats {
       bufferAhead: bufferAhead ?? this.bufferAhead,
       bufferBehind: bufferBehind ?? this.bufferBehind,
       cacheLevel: cacheLevel ?? this.cacheLevel,
+      creditsStart: creditsStart ?? this.creditsStart,
     );
   }
 
@@ -109,7 +115,8 @@ class PlaybackStats {
       other.audioChannels == audioChannels &&
       other.bufferAhead == bufferAhead &&
       other.bufferBehind == bufferBehind &&
-      other.cacheLevel == cacheLevel;
+      other.cacheLevel == cacheLevel &&
+      other.creditsStart == creditsStart;
 
   @override
   int get hashCode => Object.hash(
@@ -125,6 +132,7 @@ class PlaybackStats {
     bufferAhead,
     bufferBehind,
     cacheLevel,
+    creditsStart,
   );
 
   @override

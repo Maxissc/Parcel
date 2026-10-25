@@ -83,6 +83,19 @@ void main() {
     },
   );
 
+  test('ocultar una fila y Ver todo llegan a la configuración', () {
+    final config = DiagnosticsConfig.fromEnvironment({
+      'PARCEL_DIAG': '1',
+      'PARCEL_DIAG_HIDE_ROW': '2',
+      'PARCEL_DIAG_SEE_ALL': '1',
+    });
+    expect(config?.hideRow, 2);
+    expect(config?.seeAll, isTrue);
+    final off = DiagnosticsConfig.fromEnvironment({'PARCEL_DIAG': '1'});
+    expect(off?.hideRow, isNull);
+    expect(off?.seeAll, isFalse);
+  });
+
   test('las variables del recorrido llegan a la configuración', () {
     final config = DiagnosticsConfig.fromEnvironment({
       'PARCEL_DIAG': '1',
@@ -202,7 +215,7 @@ void main() {
         log,
         contains('home fila «Sin nada · Películas» (Cinemeta): vacía'),
       );
-      expect(log, contains('home: 3 de 4 catálogos con ítems'));
+      expect(log, contains('home: 4 de 4 filas pedidas, 3 con ítems'));
       expect(log, contains('seguir viendo: 0 ítems'));
       expect(
         log,

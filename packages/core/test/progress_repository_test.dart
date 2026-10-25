@@ -71,6 +71,24 @@ void main() {
       expect(back.position, p.position);
       expect(back.duration, p.duration);
     });
+
+    test('guarda la miniatura y lee los archivos que no la traen', () {
+      final p = PlaybackProgress(
+        type: 'series',
+        metaId: 'tt1',
+        videoId: 'tt1:1:2',
+        position: const Duration(seconds: 10),
+        duration: const Duration(seconds: 100),
+        name: 'Serie',
+        thumbnail: 'https://x/e.jpg',
+        updatedAt: DateTime.utc(2026, 10, 5),
+      );
+      final json = p.toJson();
+      expect(json['thumbnail'], 'https://x/e.jpg');
+      expect(PlaybackProgress.fromJson(json).thumbnail, 'https://x/e.jpg');
+      json.remove('thumbnail');
+      expect(PlaybackProgress.fromJson(json).thumbnail, isNull);
+    });
   });
 
   group('ProgressRepository', () {
