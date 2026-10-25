@@ -266,3 +266,28 @@ class PlaybackDiagnostics {
     _write('RECORRIDO terminado');
   }
 }
+
+/// Resume cuadros dibujados en [elapsed]: cuántos, armado y raster medios y
+/// peores, y cuántos fueron lentos. Un cuadro es lento si su armado o su
+/// raster pasan de 16,7 ms (el límite de 60 Hz de cada etapa), no si la suma
+/// de los dos pasa.
+String frameSummary(
+  List<({Duration build, Duration raster})> frames,
+  Duration elapsed,
+) {
+  final build = [for (final f in frames) f.build.inMicroseconds];
+  final raster = [for (final f in frames) f.raster.inMicroseconds];
+  String ms(num micros) => (micros / 1000).toStringAsFixed(1);
+  num avg(List<int> v) => v.reduce((a, b) => a + b) / v.length;
+  int worst(List<int> v) => v.reduce((a, b) => a > b ? a : b);
+  const limit = 16700;
+  final slow = [
+    for (final f in frames)
+      if (f.build.inMicroseconds > limit || f.raster.inMicroseconds > limit) f,
+  ].length;
+  final seconds = (elapsed.inMilliseconds / 1000).toStringAsFixed(1);
+  return 'cuadros: ${frames.length} en $seconds s; armado medio '
+      '${ms(avg(build))} ms (peor ${ms(worst(build))}); raster medio '
+      '${ms(avg(raster))} ms (peor ${ms(worst(raster))}); '
+      'más de 16,7 ms: $slow';
+}

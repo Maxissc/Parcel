@@ -45,6 +45,7 @@ class _DiagnosticsDriverState extends ConsumerState<DiagnosticsDriver> {
   Timer? _exitTimer;
   Timer? _framesTimer;
   final List<FrameTiming> _frames = [];
+  DateTime _framesSince = DateTime.now();
 
   // Se lee una vez: el recorrido sigue un rato después de que la pantalla se
   // cierra y `ref` ya no se puede usar.
@@ -106,6 +107,7 @@ class _DiagnosticsDriverState extends ConsumerState<DiagnosticsDriver> {
   void _startFrameStats(void Function(String line) sink) {
     _frameSink = sink;
     _measuring = true;
+    _framesSince = DateTime.now();
     SchedulerBinding.instance.addTimingsCallback(_onTimings);
     _framesTimer = Timer.periodic(
       const Duration(seconds: 5),
@@ -118,20 +120,14 @@ class _DiagnosticsDriverState extends ConsumerState<DiagnosticsDriver> {
   /// Resume los cuadros dibujados desde el último aviso.
   void _logFrames() {
     if (_frames.isEmpty) return;
-    final build = [for (final f in _frames) f.buildDuration.inMicroseconds];
-    final raster = [for (final f in _frames) f.rasterDuration.inMicroseconds];
-    String ms(num micros) => (micros / 1000).toStringAsFixed(1);
-    num avg(List<int> v) => v.reduce((a, b) => a + b) / v.length;
-    final slow = [
-      for (final f in _frames)
-        if (f.totalSpan.inMicroseconds > 16700) f,
-    ].length;
+    final now = DateTime.now();
     _frameSink(
-      'cuadros: ${_frames.length} en 5 s; armado medio ${ms(avg(build))} ms '
-      '(peor ${ms(build.reduce((a, b) => a > b ? a : b))}); raster medio '
-      '${ms(avg(raster))} ms (peor ${ms(raster.reduce((a, b) => a > b ? a : b))}); '
-      'más de 16,7 ms: $slow',
+      frameSummary([
+        for (final f in _frames)
+          (build: f.buildDuration, raster: f.rasterDuration),
+      ], now.difference(_framesSince)),
     );
+    _framesSince = now;
     _frames.clear();
   }
 
