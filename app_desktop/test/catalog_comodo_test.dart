@@ -14,6 +14,7 @@ import 'package:parcel_desktop/data/providers.dart';
 import 'package:parcel_desktop/features/catalog/catalog_screen.dart';
 import 'package:parcel_desktop/features/detail/detail_screen.dart';
 import 'package:parcel_desktop/features/home/home_screen.dart';
+import 'package:parcel_desktop/features/player/play_item.dart' show ResumeMode;
 import 'package:parcel_desktop/features/player/play_route.dart';
 import 'package:parcel_desktop/shared/media_row.dart';
 import 'package:parcel_desktop/shared/poster_card.dart';
@@ -194,8 +195,11 @@ void main() {
       expect(find.text('Continuar T1 E3'), findsOneWidget);
 
       await tester.tap(find.byKey(const Key('billboard-play')));
-      await pumpIo(tester, ticks: 8);
-      expect(find.byType(PlayRoute), findsOneWidget);
+      await pumpUntil(tester, find.byType(PlayRoute));
+      final args = tester.widget<PlayRoute>(find.byType(PlayRoute)).args;
+      expect(args.meta.id, 'tt0903747');
+      expect(args.video?.id, 'tt0903747:1:3');
+      expect(args.resume, ResumeMode.resume);
     });
   });
 
@@ -301,17 +305,26 @@ void main() {
       expect(many.count('catalog/movie/c8.json'), 0);
 
       final list = find.byKey(const Key('home-list'));
-      await tester.drag(list, const Offset(0, -3000));
-      await pumpIo(tester, ticks: 8);
-      await tester.drag(list, const Offset(0, -3000));
-      await pumpIo(tester, ticks: 8);
+      final last = find.text('De la fila 9');
+      Future<void> scrollToLast() async {
+        for (var i = 0; i < 6 && last.evaluate().isEmpty; i++) {
+          await tester.drag(list, const Offset(0, -3000));
+          await pumpIoUntil(
+            tester,
+            () => last.evaluate().isNotEmpty,
+            timeout: const Duration(seconds: 2),
+          );
+        }
+        expect(last, findsOneWidget);
+      }
+
+      await scrollToLast();
       expect(many.count('catalog/movie/c9.json'), 1);
 
       // Vuelve arriba y otra vez abajo: nada se pide de nuevo.
       await tester.drag(list, const Offset(0, 6000));
-      await pumpIo(tester, ticks: 8);
-      await tester.drag(list, const Offset(0, -6000));
-      await pumpIo(tester, ticks: 8);
+      await pumpUntil(tester, find.text('De la fila 0'));
+      await scrollToLast();
       expect(many.count('catalog/movie/c0.json'), 1);
       expect(many.count('catalog/movie/c9.json'), 1);
     });
@@ -363,18 +376,82 @@ void main() {
       expect(find.text('Acción'), findsOneWidget);
 
       await tester.tap(find.widgetWithText(ChoiceChip, 'Drama'));
-      await pumpIo(tester, ticks: 6);
+      await pumpUntil(tester, find.text('Solo drama'));
 
-      expect(
-        world.count('catalog/movie/top/genre=Drama.json'),
-        greaterThanOrEqualTo(1),
-      );
+      // Un solo pedido con el género, y la lista es la filtrada.
+      expect(world.count('catalog/movie/top/genre=Drama.json'), 1);
       expect(find.text('Solo drama'), findsOneWidget);
       expect(find.text('Peli 3'), findsNothing);
 
       await tester.tap(find.widgetWithText(ChoiceChip, 'Todos'));
-      await pumpIo(tester, ticks: 4);
+      await pumpUntil(tester, find.text('Peli 3'));
       expect(find.text('Peli 3'), findsOneWidget);
+    });
+
+    testWidgets('un addon sin skip da una sola página y termina', (
+      tester,
+    ) async {
+      await openHome(tester);
+      final before = world.count('catalog/series/top');
+      final seeAll = find.byKey(const Key('row-see-all')).at(1);
+      await tester.ensureVisible(seeAll);
+      await tester.tap(seeAll);
+      await pumpUntil(tester, find.byType(CatalogScreen));
+      await pumpUntil(
+        tester,
+        find.descendant(
+          of: find.byType(CatalogScreen),
+          matching: find.text('Breaking Bad'),
+        ),
+      );
+      // Un tiempo para que un pedido de más, si existiera, llegue.
+      await pumpIo(tester, ticks: 4);
+      expect(world.count('catalog/series/top'), before + 1);
+      expect(
+        world.requests.where((r) => r.contains('catalog/series/top/skip')),
+        isEmpty,
+      );
+    });
+
+    testWidgets('los duplicados entre páginas no se repiten', (tester) async {
+      world.routes['v3-cinemeta.strem.io/catalog/movie/top/skip=6.json'] = {
+        'metas': [_rich('tt900003', 'Peli 3'), _rich('tt900300', 'Peli nueva')],
+      };
+      world.routes['v3-cinemeta.strem.io/catalog/movie/top/skip=8.json'] = {
+        'metas': <Object>[],
+      };
+      await openSeeAll(tester);
+      await pumpUntil(tester, find.text('Peli nueva'));
+      expect(find.text('Peli 3'), findsOneWidget);
+      expect(find.text('Peli nueva'), findsOneWidget);
+      await pumpUntil(tester, find.byType(CatalogScreen));
+      expect(world.count('catalog/movie/top/skip=8.json'), 1);
+    });
+
+    testWidgets('cambiar de género con un pedido en vuelo descarta la '
+        'respuesta vieja', (tester) async {
+      const page2 = 'v3-cinemeta.strem.io/catalog/movie/top/skip=6.json';
+      world.routes[page2] = {
+        'metas': [_rich('tt900100', 'Peli de la página 2')],
+      };
+      world.routes['v3-cinemeta.strem.io/catalog/movie/top/genre=Drama.json'] =
+          {
+            'metas': [_rich('tt900200', 'Solo drama')],
+          };
+      final gate = Completer<void>();
+      world.gates[page2] = gate;
+      await openSeeAll(tester);
+      // El pedido de la página 2 está en vuelo.
+      await pumpIoUntil(tester, () => world.count('top/skip=6.json') > 0);
+
+      await tester.tap(find.widgetWithText(ChoiceChip, 'Drama'));
+      await pumpUntil(tester, find.text('Solo drama'));
+      gate.complete();
+      await pumpIo(tester, ticks: 4);
+
+      expect(find.text('Solo drama'), findsOneWidget);
+      expect(find.text('Peli de la página 2'), findsNothing);
+      expect(find.text('Peli 3'), findsNothing);
     });
 
     testWidgets('el clic en el título también lo abre y Atrás vuelve', (
@@ -549,6 +626,45 @@ void main() {
       expect(_inRows('Breaking Bad'), findsOneWidget);
     });
 
+    testWidgets('tocar un interruptor solo guarda lo oculto, no el orden', (
+      tester,
+    ) async {
+      await openHome(tester, size: const Size(1280, 1800));
+      await goToSettings(tester);
+      await tester.ensureVisible(find.byKey(const Key('home-row-switch-1')));
+      await tester.tap(find.byKey(const Key('home-row-switch-1')));
+      final file = File('${dir.path}/settings.json');
+      Map<String, dynamic> saved() =>
+          jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
+      await pumpIoUntil(
+        tester,
+        () => (saved()['homeHidden'] as List).isNotEmpty,
+      );
+      expect(saved()['homeHidden'], ['com.linvo.cinemeta|series|top']);
+      expect(saved()['homeOrder'], isEmpty);
+    });
+
+    testWidgets('con todas las filas ocultas la home lo dice y lleva a '
+        'Ajustes', (tester) async {
+      await openHome(
+        tester,
+        settings: {
+          'version': 3,
+          'homeHidden': [
+            'com.linvo.cinemeta|movie|top',
+            'com.linvo.cinemeta|series|top',
+            'com.linvo.cinemeta|movie|empty',
+            'com.linvo.cinemeta|movie|broken',
+          ],
+        },
+      );
+      expect(find.text('Ocultaste todas las filas'), findsOneWidget);
+      expect(find.byType(Shelf), findsNothing);
+
+      await tester.tap(find.byKey(const Key('home-open-settings')));
+      await pumpUntil(tester, find.byKey(const Key('home-rows-editor')));
+    });
+
     testWidgets('las filas ocultas no se piden y el orden manda en la home', (
       tester,
     ) async {
@@ -603,6 +719,27 @@ void main() {
       await pumpIo(tester, ticks: 6);
       expect(find.byType(DetailScreen), findsOneWidget);
     });
+
+    testWidgets(
+      '↓ desde una tarjeta de la derecha no cae en «Ver todo ›», pero '
+      'Tab sí llega',
+      (tester) async {
+        await openHome(tester, size: const Size(700, 1000));
+        await focus(tester, 'Peli 4');
+        await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+        await tester.pump(const Duration(milliseconds: 400));
+        expect(hasFocus(tester, 'Breaking Bad'), isTrue);
+
+        final seeAll = find.byKey(const Key('row-see-all')).last;
+        var reached = false;
+        for (var i = 0; i < 12 && !reached; i++) {
+          await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+          await tester.pump(const Duration(milliseconds: 300));
+          reached = Focus.of(tester.element(seeAll)).hasFocus;
+        }
+        expect(reached, isTrue);
+      },
+    );
 
     testWidgets('al pasar a una fila de abajo la home se desplaza para '
         'mostrarla', (tester) async {

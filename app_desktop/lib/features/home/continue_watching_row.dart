@@ -39,6 +39,7 @@ class ContinueWatchingRow extends ConsumerWidget {
         children: [
           const RowHeader(title: 'Seguir viendo'),
           Shelf(
+            key: const PageStorageKey<String>('shelf|continue-watching'),
             height: rowHeight,
             itemCount: items.length,
             itemBuilder: (context, index) {

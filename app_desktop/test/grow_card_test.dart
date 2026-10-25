@@ -578,4 +578,45 @@ void main() {
     expect(grown.top, greaterThanOrEqualTo(pageTop + 8 - 0.5));
     await _end(tester, mouse);
   });
+
+  testWidgets('una fila que se vuelve a armar queda donde estaba', (
+    tester,
+  ) async {
+    final page = ScrollController();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ListView(
+            controller: page,
+            children: [
+              Shelf(
+                key: const PageStorageKey<String>('fila'),
+                itemCount: 12,
+                itemBuilder: (context, index) =>
+                    PosterCard(title: 'Peli $index', onTap: () {}),
+              ),
+              const SizedBox(height: 3000),
+            ],
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    final row = find.descendant(
+      of: find.byType(Shelf),
+      matching: find.byType(Scrollable),
+    );
+    tester.state<ScrollableState>(row).position.jumpTo(300);
+    await tester.pump();
+
+    // La fila sale de la zona armada y se desarma.
+    page.jumpTo(2500);
+    await tester.pump();
+    expect(find.byType(Shelf), findsNothing);
+
+    page.jumpTo(0);
+    await tester.pump();
+    expect(find.byType(Shelf), findsOneWidget);
+    expect(tester.state<ScrollableState>(row).position.pixels, 300);
+  });
 }

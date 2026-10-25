@@ -123,6 +123,11 @@ class _CatalogRowSectionState extends ConsumerState<CatalogRowSection> {
           addonName: addonName,
           onSeeAll: onSeeAll,
           child: Shelf(
+            // Al volver a armarse (la home arma las filas por cercanía), la
+            // fila queda donde estaba.
+            key: PageStorageKey<String>(
+              'shelf|${homeRowKey(catalog)}|${widget.search ?? ''}',
+            ),
             itemCount: value.length,
             itemBuilder: (context, index) {
               final meta = value[index];

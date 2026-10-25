@@ -8,6 +8,7 @@ import '../../app/theme.dart';
 import '../../data/progress_providers.dart';
 import '../../data/providers.dart';
 import '../../shared/catalog_row_section.dart';
+import '../../shared/media_row.dart' show SeeAllSkippingPolicy;
 import '../../shared/state_views.dart';
 import 'billboard.dart';
 import 'continue_watching_row.dart';
@@ -51,6 +52,23 @@ class HomeScreen extends ConsumerWidget {
         ],
       );
     }
+    if (!hasContinue && catalogs.isEmpty) {
+      return EmptyState(
+        icon: Icons.visibility_off_outlined,
+        title: 'Ocultaste todas las filas',
+        message:
+            'No hay nada para mostrar en el inicio. Volvé a mostrar alguna '
+            'en Ajustes → Inicio.',
+        actions: [
+          FilledButton.icon(
+            key: const Key('home-open-settings'),
+            onPressed: () => context.go(Routes.settings),
+            icon: const Icon(Icons.settings_outlined),
+            label: const Text('Ir a Ajustes → Inicio'),
+          ),
+        ],
+      );
+    }
     if (!hasContinue && allEmpty) {
       return const EmptyState(
         icon: Icons.movie_outlined,
@@ -59,27 +77,30 @@ class HomeScreen extends ConsumerWidget {
       );
     }
 
-    return ListView(
-      key: const Key('home-list'),
-      scrollCacheExtent: ScrollCacheExtent.pixels(
-        MediaQuery.sizeOf(context).height,
+    return FocusTraversalGroup(
+      policy: SeeAllSkippingPolicy(),
+      child: ListView(
+        key: const Key('home-list'),
+        scrollCacheExtent: ScrollCacheExtent.pixels(
+          MediaQuery.sizeOf(context).height,
+        ),
+        padding: const EdgeInsets.only(bottom: Spacing.lg),
+        children: [
+          const Billboard(),
+          const SizedBox(height: Spacing.md),
+          ContinueWatchingRow(onOpen: (meta) => openDetail(context, meta)),
+          for (final catalog in catalogs)
+            CatalogRowSection(
+              key: ValueKey((
+                catalog.addon.transportUrl,
+                catalog.catalog.type,
+                catalog.catalog.id,
+              )),
+              catalog: catalog,
+              onOpen: (meta) => openDetail(context, meta),
+            ),
+        ],
       ),
-      padding: const EdgeInsets.only(bottom: Spacing.lg),
-      children: [
-        const Billboard(),
-        const SizedBox(height: Spacing.md),
-        ContinueWatchingRow(onOpen: (meta) => openDetail(context, meta)),
-        for (final catalog in catalogs)
-          CatalogRowSection(
-            key: ValueKey((
-              catalog.addon.transportUrl,
-              catalog.catalog.type,
-              catalog.catalog.id,
-            )),
-            catalog: catalog,
-            onOpen: (meta) => openDetail(context, meta),
-          ),
-      ],
     );
   }
 }

@@ -78,14 +78,74 @@ class RowHeader extends StatelessWidget {
                 Expanded(
                   child: Align(alignment: Alignment.centerLeft, child: labels),
                 ),
-                TextButton(
-                  key: const Key('row-see-all'),
-                  onPressed: onSeeAll,
-                  child: const Text('Ver todo ›'),
-                ),
+                _SeeAllButton(onPressed: onSeeAll!),
               ],
             ),
     );
+  }
+}
+
+/// «Ver todo ›»: se llega con Tab, pero las flechas direccionales lo saltean
+/// (con [SeeAllSkippingPolicy]).
+class _SeeAllButton extends StatefulWidget {
+  const _SeeAllButton({required this.onPressed});
+
+  final VoidCallback onPressed;
+
+  @override
+  State<_SeeAllButton> createState() => _SeeAllButtonState();
+}
+
+class _SeeAllButtonState extends State<_SeeAllButton> {
+  final FocusNode _node = FocusNode(debugLabel: 'ver-todo');
+
+  @override
+  void initState() {
+    super.initState();
+    SeeAllSkippingPolicy._nodes.add(_node);
+  }
+
+  @override
+  void dispose() {
+    SeeAllSkippingPolicy._nodes.remove(_node);
+    _node.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return TextButton(
+      key: const Key('row-see-all'),
+      focusNode: _node,
+      onPressed: widget.onPressed,
+      child: const Text('Ver todo ›'),
+    );
+  }
+}
+
+/// Recorrido del foco de la home: igual al de lectura, pero ↑ ↓ ← → no paran
+/// en los «Ver todo ›» de las filas (siguen alcanzables con Tab).
+class SeeAllSkippingPolicy extends ReadingOrderTraversalPolicy {
+  SeeAllSkippingPolicy();
+
+  static final Set<FocusNode> _nodes = {};
+
+  @override
+  bool inDirection(FocusNode currentNode, TraversalDirection direction) {
+    final skipped = [
+      for (final node in _nodes)
+        if (node != currentNode && !node.skipTraversal) node,
+    ];
+    for (final node in skipped) {
+      node.skipTraversal = true;
+    }
+    try {
+      return super.inDirection(currentNode, direction);
+    } finally {
+      for (final node in skipped) {
+        node.skipTraversal = false;
+      }
+    }
   }
 }
 

@@ -87,10 +87,9 @@ class HomeRowsEditor extends ConsumerWidget {
                   unawaited(
                     _save(
                       context,
-                      notifier.setHomeLayout(
-                        // El orden queda tal cual se ve ahora.
-                        layout.copyWith(order: keys, hidden: hidden),
-                      ),
+                      // Ocultar o mostrar no fija el orden: eso se guarda solo
+                      // al arrastrar.
+                      notifier.setHomeLayout(layout.copyWith(hidden: hidden)),
                     ),
                   );
                 },
