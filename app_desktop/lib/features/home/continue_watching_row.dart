@@ -64,8 +64,8 @@ class ContinueWatchingRow extends ConsumerWidget {
                 onContextMenu: (position) =>
                     unawaited(actions.contextMenu(meta, position)),
                 preview: CardPreview(
-                  year: tag,
-                  synopsis: remainingLabel(p.duration, p.position),
+                  episode: tag,
+                  remaining: remainingLabel(p.duration, p.position),
                   playLabel: 'Continuar',
                   onPlay: () => unawaited(
                     actions.play(

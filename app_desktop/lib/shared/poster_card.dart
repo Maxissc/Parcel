@@ -40,6 +40,8 @@ class CardPreview {
     this.year,
     this.genres = const [],
     this.synopsis,
+    this.episode,
+    this.remaining,
     this.playLabel = 'Ver',
     this.onPlay,
     this.onInfo,
@@ -50,6 +52,13 @@ class CardPreview {
   final String? year;
   final List<String> genres;
   final String? synopsis;
+
+  /// Episodio que se está viendo («T1 E3»), en «Seguir viendo».
+  final String? episode;
+
+  /// Cuánto falta («Quedan 12 min»); se muestra donde iría la sinopsis si no
+  /// hay.
+  final String? remaining;
   final String playLabel;
   final VoidCallback? onPlay;
   final VoidCallback? onInfo;
@@ -787,8 +796,10 @@ class _Panel extends StatelessWidget {
     final facts = [
       if (preview.rating != null) '★ ${preview.rating}',
       ?preview.year,
+      ?preview.episode,
       ...preview.genres.take(2),
     ];
+    final detail = preview.synopsis ?? preview.remaining;
     return Material(
       key: const Key('card-panel'),
       color: scheme.surfaceContainerHigh,
@@ -815,9 +826,9 @@ class _Panel extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
                 style: dim,
               ),
-            if (preview.synopsis != null)
+            if (detail != null)
               Text(
-                preview.synopsis!,
+                detail,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: dim,

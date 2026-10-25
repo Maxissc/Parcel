@@ -619,4 +619,54 @@ void main() {
     expect(find.byType(Shelf), findsOneWidget);
     expect(tester.state<ScrollableState>(row).position.pixels, 300);
   });
+
+  testWidgets('el panel de «Seguir viendo» muestra el episodio y cuánto '
+      'queda', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Align(
+            alignment: Alignment.topLeft,
+            child: SizedBox(
+              width: 900,
+              child: Shelf(
+                height: 262,
+                itemCount: 3,
+                itemBuilder: (context, index) => PosterCard(
+                  title: 'Serie $index',
+                  shape: 'landscape',
+                  onTap: () {},
+                  preview: const CardPreview(
+                    episode: 'T2 E4',
+                    remaining: 'Quedan 12 min',
+                    playLabel: 'Continuar',
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    final mouse = await _hover(tester, find.byType(PosterCard).at(1));
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('card-panel')),
+        matching: find.text('T2 E4'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('card-panel')),
+        matching: find.text('Quedan 12 min'),
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('Continuar'), findsOneWidget);
+    await _end(tester, mouse);
+  });
 }
