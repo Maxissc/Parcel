@@ -215,7 +215,7 @@ void main() {
         log,
         contains('home fila «Sin nada · Películas» (Cinemeta): vacía'),
       );
-      expect(log, contains('home: 3 de 4 catálogos con ítems'));
+      expect(log, contains('home: 4 de 4 filas pedidas, 3 con ítems'));
       expect(log, contains('seguir viendo: 0 ítems'));
       expect(
         log,

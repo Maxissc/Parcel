@@ -165,7 +165,9 @@ class _DiagnosticsDriverState extends ConsumerState<DiagnosticsDriver> {
   Future<void> _logHome() async {
     final catalogs = ref.read(homeRowsProvider);
     final hidden = ref.read(homeAllRowsProvider).length - catalogs.length;
-    await Future<void>.delayed(const Duration(seconds: 4));
+    await WidgetsBinding.instance.endOfFrame;
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted) return;
     var requested = 0;
     var withItems = 0;
     for (final c in catalogs) {
