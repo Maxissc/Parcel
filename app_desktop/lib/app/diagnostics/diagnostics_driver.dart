@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show kReleaseMode;
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:parcel_core/parcel_core.dart' hide Video;
 
@@ -41,18 +43,37 @@ class DiagnosticsDriver extends ConsumerStatefulWidget {
 
 class _DiagnosticsDriverState extends ConsumerState<DiagnosticsDriver> {
   Timer? _exitTimer;
+  Timer? _framesTimer;
+  final List<FrameTiming> _frames = [];
 
-  DiagLog get _log => ref.read(diagLogProvider);
+  // Se lee una vez: el recorrido sigue un rato después de que la pantalla se
+  // cierra y `ref` ya no se puede usar.
+  late final DiagLog _log;
+  bool _measuring = false;
 
   @override
   void initState() {
     super.initState();
+    _log = ref.read(diagLogProvider);
     final config = ref.read(diagnosticsConfigProvider);
-    if (config == null) return;
+    // Los tiempos de cuadro también se miden en un build `--profile` (que no
+    // tiene el diagnóstico completo) con PARCEL_FRAME_STATS=1.
+    final profileStats =
+        !kReleaseMode && Platform.environment['PARCEL_FRAME_STATS'] == '1';
+    if (config == null) {
+      if (profileStats) {
+        _startFrameStats((line) => stdout.writeln('[diag] $line'));
+      }
+      return;
+    }
+    if (config.frameStats) {
+      _startFrameStats((line) => _log.log(line));
+    }
     final exitAfter = config.exitAfter;
     if (exitAfter != null) {
       _exitTimer = Timer(exitAfter, () {
-        ref.read(diagLogProvider).log('cierre por PARCEL_DIAG_EXIT_SECONDS');
+        _logFrames();
+        _log.log('cierre por PARCEL_DIAG_EXIT_SECONDS');
         exit(0);
       });
     }
@@ -78,6 +99,40 @@ class _DiagnosticsDriverState extends ConsumerState<DiagnosticsDriver> {
       }
       unawaited(pasted.then((_) => _browse(config)));
     });
+  }
+
+  void Function(String line) _frameSink = (_) {};
+
+  void _startFrameStats(void Function(String line) sink) {
+    _frameSink = sink;
+    _measuring = true;
+    SchedulerBinding.instance.addTimingsCallback(_onTimings);
+    _framesTimer = Timer.periodic(
+      const Duration(seconds: 5),
+      (_) => _logFrames(),
+    );
+  }
+
+  void _onTimings(List<FrameTiming> timings) => _frames.addAll(timings);
+
+  /// Resume los cuadros dibujados desde el último aviso.
+  void _logFrames() {
+    if (_frames.isEmpty) return;
+    final build = [for (final f in _frames) f.buildDuration.inMicroseconds];
+    final raster = [for (final f in _frames) f.rasterDuration.inMicroseconds];
+    String ms(num micros) => (micros / 1000).toStringAsFixed(1);
+    num avg(List<int> v) => v.reduce((a, b) => a + b) / v.length;
+    final slow = [
+      for (final f in _frames)
+        if (f.totalSpan.inMicroseconds > 16700) f,
+    ].length;
+    _frameSink(
+      'cuadros: ${_frames.length} en 5 s; armado medio ${ms(avg(build))} ms '
+      '(peor ${ms(build.reduce((a, b) => a > b ? a : b))}); raster medio '
+      '${ms(avg(raster))} ms (peor ${ms(raster.reduce((a, b) => a > b ? a : b))}); '
+      'más de 16,7 ms: $slow',
+    );
+    _frames.clear();
   }
 
   /// Completa el asistente como si el usuario pegara [text] y confirmara.
@@ -415,6 +470,10 @@ class _DiagnosticsDriverState extends ConsumerState<DiagnosticsDriver> {
   @override
   void dispose() {
     _exitTimer?.cancel();
+    _framesTimer?.cancel();
+    if (_measuring) {
+      SchedulerBinding.instance.removeTimingsCallback(_onTimings);
+    }
     super.dispose();
   }
 

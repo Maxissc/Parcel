@@ -41,6 +41,9 @@ import '../../playback/playback_errors.dart';
 /// - `PARCEL_DIAG_SEE_ALL=1`: abre «Ver todo» de la primera fila de la home,
 ///   pide una segunda página con `skip` y filtra por el primer género, y
 ///   cuenta lo que trajo cada pedido.
+/// - `PARCEL_DIAG_FRAMES=1`: cada 5 s anota cuántos cuadros se dibujaron, el
+///   tiempo medio y el peor de armado y de rasterizado, y cuántos pasaron de
+///   16,7 ms (para medir la fluidez de las animaciones).
 /// - `PARCEL_DIAG_MIN_PROBE_BYTES`: tamaño mínimo con el que la prueba de
 ///   fuentes acepta un video (por defecto 20 MB; una muestra chica necesita 0).
 class DiagnosticsConfig {
@@ -61,6 +64,7 @@ class DiagnosticsConfig {
     this.autoNext = false,
     this.hideRow,
     this.seeAll = false,
+    this.frameStats = false,
   });
 
   final String? url;
@@ -91,6 +95,7 @@ class DiagnosticsConfig {
   /// Fila de la home a ocultar; `null` si no hay.
   final int? hideRow;
   final bool seeAll;
+  final bool frameStats;
 
   /// `null` si no es debug o no está `PARCEL_DIAG`.
   static DiagnosticsConfig? fromEnvironment([Map<String, String>? env]) {
@@ -120,6 +125,7 @@ class DiagnosticsConfig {
       autoNext: e['PARCEL_DIAG_AUTO_NEXT'] == '1',
       hideRow: int.tryParse(e['PARCEL_DIAG_HIDE_ROW'] ?? ''),
       seeAll: e['PARCEL_DIAG_SEE_ALL'] == '1',
+      frameStats: e['PARCEL_DIAG_FRAMES'] == '1',
     );
   }
 }
